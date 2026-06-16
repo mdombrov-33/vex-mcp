@@ -1,16 +1,71 @@
+mod domain;
+mod protocol;
+
+use std::collections::HashMap;
 use std::process::Stdio;
-use tokio::io::{self, AsyncWriteExt};
+use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio::process::Command;
+
+fn init_telemetry() {
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
+}
+
+fn classify_and_record(
+    direction: &'static str,
+    line: &str,
+    pending: &mut HashMap<domain::RequestId, String>,
+) -> domain::MessageClass {
+    if let Ok(req) = serde_json::from_str::<protocol::RawJsonRpcRequest>(line) {
+        let class = domain::classify_request(&req.method);
+
+        if let Some(id) = req
+            .id
+            .as_ref()
+            .and_then(|id| domain::RequestId::parse(id).ok())
+        {
+            pending.insert(id, req.method.clone());
+        }
+
+        tracing::info!(%direction, method = %req.method, class = ?class, "request");
+        return class;
+    }
+
+    if let Ok(resp) = serde_json::from_str::<protocol::RawJsonRpcResponse>(line) {
+        let id = resp
+            .id
+            .as_ref()
+            .and_then(|id| domain::RequestId::parse(id).ok());
+        let class = domain::classify_response(id.as_ref(), pending);
+
+        if let Some(id) = id {
+            pending.remove(&id);
+        }
+
+        tracing::info!(%direction, class = ?class, "response");
+        return class;
+    }
+
+    tracing::warn!(
+        %direction,
+        bytes = line.len(),
+        "message did not parse as a known request or response shape"
+    );
+    domain::MessageClass::Unknown
+}
 
 #[tokio::main]
 
 async fn main() -> std::io::Result<()> {
+    init_telemetry();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (command, command_args) = args
         .split_first()
         .expect("usage: vex-mcp <command> [args...]");
 
-    eprintln!("{:?} {:?}", command, command_args);
+    tracing::info!(?command, ?command_args, "spawning child server");
 
     let mut child = Command::new(command)
         .args(command_args)
@@ -18,18 +73,51 @@ async fn main() -> std::io::Result<()> {
         .stdout(Stdio::piped())
         .spawn()?;
 
-    let mut child_stdin = child.stdin.take().expect("child stdin was piped");
-    let mut child_stdout = child.stdout.take().expect("child stdout was piped");
+    let mut child_stdin = Some(child.stdin.take().expect("child stdin was piped"));
+    let child_stdout = child.stdout.take().expect("child stdout was piped");
 
-    let mut stdin = io::stdin();
+    let stdin = io::stdin();
     let mut stdout = io::stdout();
 
-    let client_to_server = io::copy(&mut stdin, &mut child_stdin);
-    let server_to_client = io::copy(&mut child_stdout, &mut stdout);
+    let mut pending: HashMap<domain::RequestId, String> = HashMap::new();
+    let mut client_lines = io::BufReader::new(stdin).lines();
+    let mut server_lines = io::BufReader::new(child_stdout).lines();
 
-    tokio::try_join!(client_to_server, server_to_client)?;
+    let mut client_done = false;
+    let mut server_done = false;
 
-    child_stdin.shutdown().await?;
+    while !(client_done && server_done) {
+        tokio::select! {
+            line = client_lines.next_line(), if !client_done => {
+                match line? {
+                    Some(line) => {
+                        classify_and_record("client_to_server", &line, &mut pending);
+                        if let Some(child_stdin) = child_stdin.as_mut() {
+                            child_stdin.write_all(line.as_bytes()).await?;
+                            child_stdin.write_all(b"\n").await?;
+                            child_stdin.flush().await?;
+                        }
+                    }
+                    None => {
+                        client_done = true;
+                        drop(child_stdin.take());
+                    }
+                }
+            }
+            line = server_lines.next_line(), if !server_done => {
+                match line? {
+                    Some(line) => {
+                        classify_and_record("server_to_client", &line, &mut pending);
+                        stdout.write_all(line.as_bytes()).await?;
+                        stdout.write_all(b"\n").await?;
+                        stdout.flush().await?;
+                    }
+                    None => server_done = true,
+                }
+            }
+        }
+    }
+
     child.wait().await?;
 
     Ok(())

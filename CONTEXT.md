@@ -34,7 +34,7 @@ Which bucket an inbound/outbound message falls into, which in turn decides its f
 
 - `tools/call` request — a privileged action. Fails closed.
 - `tools/list` response — the tool catalog; controls what future actions look legitimate. Fails closed.
-- **Known-safe request** — a request method Vex explicitly recognizes as non-privileged (`initialize`, `ping`, `resources/*`, `prompts/*`, …). Fails open.
+- **Known-safe request** — a request method Vex explicitly recognizes as non-privileged (`initialize`, `ping`, `tools/list`, `resources/*`, `prompts/*`, …). Fails open.
 - **Passive response** — any other recognized response shape. Fails open.
 - **Unknown** — a request method Vex's parser has never been told about: not `tools/call`, not on the known-safe list. Fails **closed** — see ADR-0002.
 
