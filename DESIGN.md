@@ -139,7 +139,7 @@ Two design commitments worth stating up front:
 
 - **Fail-safe direction is a conscious choice, per message class.** The security reference is blunt that "fail open" (degrade to no-protection so the service stays up) and "fail closed" (block when uncertain so nothing leaks) are opposite philosophies and you must pick deliberately. For Vex: _parsing/transport errors on a tool-call request fail **closed**_ (a malformed privileged action is exactly when you don't want to guess), while _inspection errors on passive data responses fail **open**_ (don't brick the user's workflow because a detector panicked). This is not a comment — it is a typed decision; see §10.6. Encode it explicitly; never let it be accidental.
     
-- **Unknown message types pass through untouched but logged.** MCP evolves (the spec already moved 2024→2025-06-18). A security proxy that breaks every time the protocol adds a field is worse than useless. Parse what you understand into typed structures; let everything else fall through as opaque JSON you still record. This is the "parse, don't validate the whole world" discipline.
+- **Unknown response shapes pass through untouched but logged; unknown request methods do not.** MCP evolves (the spec already moved 2024→2025-06-18), and a security proxy that breaks every time the protocol adds a response field is worse than useless — so unrecognized *response* shapes fall through as opaque JSON you still record. But an unrecognized *request method* (anything that isn't `tools/call` and isn't on the explicit known-safe list — `initialize`, `ping`, `resources/*`, `prompts/*`) is an action being asked of the server, not data flowing to the model, and Vex doesn't yet know whether it's privileged. That fails **closed** by default, mirroring the M4 policy engine's default-deny posture one layer earlier. See ADR-0002 and §10.6.
     
 
 ### 2.3 Component decomposition (maps cleanly to Rust modules/crates)
@@ -791,16 +791,18 @@ pub enum FailureMode { FailOpen, FailClosed }
 pub enum MessageClass {
     ToolCallRequest,
     ToolListResponse,
+    KnownSafeRequest, // initialize, ping, resources/*, prompts/* — explicitly recognized, non-privileged
     PassiveResponse,
-    Unknown,
+    Unknown, // a request method Vex has never been told about — not tools/call, not known-safe
 }
 
 pub fn failure_mode_for(class: MessageClass) -> FailureMode {
     match class {
         MessageClass::ToolCallRequest => FailureMode::FailClosed,
         MessageClass::ToolListResponse => FailureMode::FailClosed, // catalog is security-relevant
+        MessageClass::KnownSafeRequest => FailureMode::FailOpen,
         MessageClass::PassiveResponse => FailureMode::FailOpen,
-        MessageClass::Unknown => FailureMode::FailOpen,
+        MessageClass::Unknown => FailureMode::FailClosed, // unrecognized request method — default-deny, not default-allow
     }
 }
 
@@ -816,7 +818,7 @@ pub fn verdict_for_inspection_error(class: MessageClass, error: &str) -> Verdict
 }
 ```
 
-`ToolListResponse` failing **closed** is a deliberate sharpening of §2.2's request-vs-passive binary: the tool catalog is the poisoning surface, so a catalog you can't inspect is one you shouldn't forward blindly. When you add a new path and the failure mode isn't obvious, decide it here, on purpose.
+`ToolListResponse` failing **closed** is a deliberate sharpening of §2.2's request-vs-passive binary: the tool catalog is the poisoning surface, so a catalog you can't inspect is one you shouldn't forward blindly. `Unknown` failing **closed** is the same instinct applied to request methods: an unrecognized response is data (safe to forward), but an unrecognized request is an action of unknown privilege, so it's blocked until Vex is explicitly taught it's safe (ADR-0002). When you add a new path and the failure mode isn't obvious, decide it here, on purpose.
 
 ### 10.7 serde for config, but deserialize into typed policy
 
