@@ -102,3 +102,19 @@ Apply these by default; the worked code for each is in `DESIGN.md` §10, and §1
 - **Avoid `unsafe`. Avoid reflexive `clone()` to silence the borrow checker** — use ownership intentionally. When ownership gets hard, that's the lesson; sit in it.
 
 > The throughline: **use the type system and tests as part of the design, not as cleanup afterward.** If a change makes an invalid state representable, that's a design smell — reach for a type before reaching for a runtime check.
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (uses the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root (not yet created; `DESIGN.md` currently fills this role). See `docs/agents/domain.md`.
