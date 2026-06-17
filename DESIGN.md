@@ -66,6 +66,63 @@ A transparent MCP proxy that intercepts the JSON-RPC stream between client and s
 
 The client thinks it's talking to a server. The server thinks it's talking to a client. Vex is in the middle, and neither side has to know — that transparency is the whole point.
 
+### What Vex is, exactly
+
+Vex is a **CLI binary** — an executable that gets **spawned by the MCP client**, not run manually by a human. This distinction matters.
+
+MCP clients (Claude Code, Claude Desktop, or a custom Python/Node.js agent) connect to local MCP servers by spawning them as child processes and communicating over stdio. That's how the protocol works: the client calls the equivalent of `subprocess.spawn("npx", ["-y", "@mcp/server-filesystem", "/data"])` under the hood. No human types that command.
+
+Vex slots into that spawn slot. Instead of the client spawning the real server, it spawns Vex — and Vex spawns the real server as its own child. One config change, no code changes:
+
+```python
+# before — client spawns the real server directly
+StdioServerParameters(command="npx", args=["-y", "@mcp/server-filesystem", "/data"])
+
+# after — client spawns Vex, Vex spawns the real server
+StdioServerParameters(command="vex", args=["--config", "policy.toml", "--", "npx", "-y", "@mcp/server-filesystem", "/data"])
+```
+
+The word "CLI" describes the artifact (a compiled executable binary), not how it's invoked. `npx` is also a CLI tool; no one manually types it every time their agent starts.
+
+### Who uses it and how
+
+- **Developer tooling (Claude Desktop, Claude Code):** change the `command` entry in the MCP server config JSON. One line.
+- **Custom agentic system (production Python/Node.js service):** change the spawn command in the MCP client initialization block. One line per server. The rest of the agent code is untouched.
+- **Docker/containerized deployment:** include the Vex binary in the image, update the spawn command. Vex runs inside the service's process tree as a wrapper around each MCP server connection.
+
+**Important:** Vex is not a persistent daemon you boot separately and leave running. It is spawned by the MCP client per connection, lives as long as that connection lives, and exits with it. In a production service that maintains long-lived MCP connections (the normal case), Vex runs continuously but invisibly — one Vex process per MCP server the service connects to.
+
+### What the operator configures
+
+A TOML policy file shipped with the service:
+
+```toml
+default_action = "deny"
+
+blocked_tools = ["shell.exec", "filesystem.delete"]
+confirmation_required = ["github.create_pr", "email.send"]
+```
+
+At runtime: blocked tool calls return a JSON-RPC error to the agent (handled like any other tool error). Detected injection blocks the tool catalog. Drift (tool definition changed since last session) is flagged in logs and the audit trail. The agent code sees none of this directly — it sees allowed calls go through and blocked calls return errors.
+
+Monitoring surfaces: an append-only audit log (JSON-lines, hash-chained, shippable to a SIEM) and operational logs on stderr (captured by the container runtime like any other process output).
+
+### Current production limitations (v0/v1)
+
+These are known gaps, not surprises:
+
+- **No HTTP transport.** Remote MCP servers (GitHub's hosted MCP, Linear, Notion, etc.) run over HTTP, not stdio. Vex v0/v1 only covers stdio. HTTP proxy mode is M6+.
+- **Static policy.** Policy is a file read at startup. Changing rules requires restarting the Vex process (which means restarting the MCP connection). Hot reload and dynamic policy are post-M5.
+- **No drift approval workflow.** When drift is detected, resolving it requires manually editing the pin store. A UI or CLI subcommand for approving detected drift is post-M5.
+- **One process per server.** Ten MCP servers means ten Vex processes. This is fine at any realistic scale — process overhead is negligible — but worth knowing.
+
+### The post-v1 distribution and embedding story
+
+Vex v1 is a binary. That covers all stdio-based deployments. Two things open up later:
+
+1. **HTTP proxy mode (M6+):** Vex runs as a local HTTP server that proxies to remote MCP HTTP servers, protecting calls to hosted MCP services.
+2. **Library crate (post-M5, not yet planned):** splitting `vex-core` (pure detection/policy logic, no process spawning) from the `vex` binary. The library is what lets production platforms embed inspection inline, compile to WASM for JS environments, or wrap with PyO3 for Python. The detection code is already shaped correctly for this (pure functions, no I/O) — it's a packaging decision, not an architecture rewrite. Worth deciding before M5 is done to avoid coupling the detection code to the process model.
+
 ### The core enforcement surfaces (v0 → v1)
 
 These are deliberately chosen to map onto named threats, not invented:
