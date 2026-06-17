@@ -1,6 +1,7 @@
 mod detect;
 mod domain;
 mod pin;
+mod policy;
 mod protocol;
 
 use std::collections::HashMap;
@@ -18,7 +19,7 @@ fn classify_and_record(
     direction: &'static str,
     line: &str,
     pending: &mut HashMap<domain::RequestId, String>,
-) -> domain::MessageClass {
+) -> (domain::MessageClass, Option<protocol::RawJsonRpcResponse>) {
     if let Ok(req) = serde_json::from_str::<protocol::RawJsonRpcRequest>(line) {
         let class = domain::classify_request(&req.method);
 
@@ -31,7 +32,7 @@ fn classify_and_record(
         }
 
         tracing::info!(%direction, method = %req.method, class = ?class, "request");
-        return class;
+        return (class, None);
     }
 
     if let Ok(resp) = serde_json::from_str::<protocol::RawJsonRpcResponse>(line) {
@@ -46,7 +47,7 @@ fn classify_and_record(
         }
 
         tracing::info!(%direction, class = ?class, "response");
-        return class;
+        return (class, Some(resp));
     }
 
     tracing::warn!(
@@ -54,27 +55,31 @@ fn classify_and_record(
         bytes = line.len(),
         "message did not parse as a known request or response shape"
     );
-    domain::MessageClass::Unknown
+    (domain::MessageClass::Unknown, None)
 }
 
-fn inspect_tool_list_response(line: &str, server_id: &domain::ServerId, pin_store: &mut pin::PinStore) {
-    let Ok(resp) = serde_json::from_str::<protocol::RawJsonRpcResponse>(line) else {
-        tracing::warn!("tools/list response could not be re-parsed for inspection");
-        return;
-    };
-
-    let Some(result) = resp.result else {
+fn inspect_tool_list_response(
+    resp: &protocol::RawJsonRpcResponse,
+    server_id: &domain::ServerId,
+    pin_store: &pin::PinStore,
+) -> Vec<detect::ToolInspection> {
+    let Some(result) = resp.result.as_ref() else {
         tracing::warn!("tools/list response has no result field");
-        return;
+        return vec![];
     };
 
     let Some(tools) = result.get("tools").and_then(|t| t.as_array()) else {
         tracing::warn!("tools/list result has no tools array");
-        return;
+        return vec![];
     };
 
+    let mut inspections = Vec::new();
+
     for tool in tools {
-        let name_str = tool.get("name").and_then(|n| n.as_str()).unwrap_or("<unknown>");
+        let name_str = tool
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or("<unknown>");
 
         let tool_name = match domain::ToolName::parse(name_str.to_owned()) {
             Ok(n) => n,
@@ -108,38 +113,17 @@ fn inspect_tool_list_response(line: &str, server_id: &domain::ServerId, pin_stor
             input_schema,
         };
 
-        let poisoning_findings = detect::poisoning::scan_tool_description(&def.description);
-        for finding in &poisoning_findings {
-            tracing::warn!(
-                tool = %name_str,
-                rule_id = finding.rule_id,
-                severity = ?finding.severity,
-                message = %finding.message,
-                "FINDING: tool description flagged",
-            );
-        }
-        if poisoning_findings.is_empty() {
-            tracing::debug!(tool = %name_str, "tool description clean");
-        }
+        let mut findings = detect::poisoning::scan_tool_description(&def.description);
+        findings.extend(detect::drift::detect_drift(&def, server_id, pin_store));
 
-        let drift_findings = detect::drift::detect_drift(&def, server_id, pin_store);
-        for finding in &drift_findings {
-            tracing::warn!(
-                tool = %name_str,
-                rule_id = finding.rule_id,
-                severity = ?finding.severity,
-                message = %finding.message,
-                "FINDING: tool drift detected",
-            );
-        }
-
-        let current_hash = def.hash();
-        pin_store.upsert(server_id, &def.name, current_hash);
-
-        if let Err(e) = pin_store.save() {
-            tracing::warn!(error = %e, "failed to persist pin store");
-        }
+        inspections.push(detect::ToolInspection {
+            new_hash: def.hash(),
+            name: def.name,
+            findings,
+        });
     }
+
+    inspections
 }
 
 #[tokio::main]
@@ -165,12 +149,11 @@ async fn main() -> std::io::Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
-    let server_id = domain::ServerId::parse(command.clone())
-        .expect("command name must be a valid server id");
+    let server_id =
+        domain::ServerId::parse(command.clone()).expect("command name must be a valid server id");
 
     let pin_store_path = std::env::var("VEX_PIN_STORE").unwrap_or_else(|_| "pins.json".to_owned());
-    let mut pin_store = pin::PinStore::load(&pin_store_path)
-        .expect("failed to load pin store");
+    let mut pin_store = pin::PinStore::load(&pin_store_path).expect("failed to load pin store");
 
     let mut pending: HashMap<domain::RequestId, String> = HashMap::new();
     let mut client_lines = io::BufReader::new(stdin).lines();
@@ -184,7 +167,7 @@ async fn main() -> std::io::Result<()> {
             line = client_lines.next_line(), if !client_done => {
                 match line? {
                     Some(line) => {
-                        classify_and_record("client_to_server", &line, &mut pending);
+                        let _ = classify_and_record("client_to_server", &line, &mut pending);
                         if let Some(child_stdin) = child_stdin.as_mut() {
                             child_stdin.write_all(line.as_bytes()).await?;
                             child_stdin.write_all(b"\n").await?;
@@ -200,9 +183,36 @@ async fn main() -> std::io::Result<()> {
             line = server_lines.next_line(), if !server_done => {
                 match line? {
                     Some(line) => {
-                        let class = classify_and_record("server_to_client", &line, &mut pending);
+                        let (class, parsed) = classify_and_record("server_to_client", &line, &mut pending);
                         if class == domain::MessageClass::ToolListResponse {
-                            inspect_tool_list_response(&line, &server_id, &mut pin_store);
+                            let inspections = parsed
+                                .as_ref()
+                                .map(|resp| inspect_tool_list_response(resp, &server_id, &pin_store))
+                                .unwrap_or_default();
+                            for inspection in &inspections {
+                                let tool = inspection.name.as_ref();
+                                let verdict = policy::decide(class, &inspection.findings);
+                                match verdict {
+                                    domain::Verdict::Allow => {
+                                        tracing::debug!(%tool, "tool clean");
+                                    }
+                                    domain::Verdict::Flag => {
+                                        for f in &inspection.findings {
+                                            tracing::warn!(%tool, rule_id = f.rule_id, severity = ?f.severity, message = %f.message, verdict = "Flag", "FINDING");
+                                        }
+                                    }
+                                    domain::Verdict::Block | domain::Verdict::RequireConfirmation => {
+                                        for f in &inspection.findings {
+                                            tracing::error!(%tool, rule_id = f.rule_id, severity = ?f.severity, message = %f.message, verdict = "Block", "FINDING");
+                                        }
+                                        // M4 will synthesize a JSON-RPC error and skip forwarding.
+                                    }
+                                }
+                                pin_store.upsert(&server_id, &inspection.name, inspection.new_hash.clone());
+                            }
+                            if !inspections.is_empty() && let Err(e) = pin_store.save() {
+                                tracing::warn!(error = %e, "failed to persist pin store");
+                            }
                         }
                         stdout.write_all(line.as_bytes()).await?;
                         stdout.write_all(b"\n").await?;

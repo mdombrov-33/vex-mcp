@@ -9,6 +9,37 @@ pub enum MessageClass {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureMode {
+    Open,
+    Closed,
+}
+
+/// The single decision policy reaches for a message. See CONTEXT.md.
+/// `RequireConfirmation` behaves as `Block` until a confirmation channel exists (ADR-0003).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Allow,
+    Flag,
+    Block,
+    #[allow(dead_code)]
+    // reserved for ADR-0003; behaves as Block until a confirmation channel exists
+    RequireConfirmation,
+}
+
+pub fn failure_mode_for(class: MessageClass) -> FailureMode {
+    match class {
+        // Privileged actions and the tool catalog that controls them: fail closed.
+        MessageClass::ToolCallRequest => FailureMode::Closed,
+        MessageClass::ToolListResponse => FailureMode::Closed,
+        // Unrecognized request methods: fail closed (ADR-0002).
+        MessageClass::Unknown => FailureMode::Closed,
+        // Non-privileged handshake/listing requests and passive data responses: fail open.
+        MessageClass::KnownSafeRequest => FailureMode::Open,
+        MessageClass::PassiveResponse => FailureMode::Open,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RequestId(String);
 
@@ -170,6 +201,27 @@ mod tests {
         assert_eq!(
             classify_request("tools/list"),
             MessageClass::KnownSafeRequest
+        );
+    }
+
+    #[test]
+    fn failure_mode_table() {
+        assert_eq!(
+            failure_mode_for(MessageClass::ToolCallRequest),
+            FailureMode::Closed
+        );
+        assert_eq!(
+            failure_mode_for(MessageClass::ToolListResponse),
+            FailureMode::Closed
+        );
+        assert_eq!(failure_mode_for(MessageClass::Unknown), FailureMode::Closed);
+        assert_eq!(
+            failure_mode_for(MessageClass::KnownSafeRequest),
+            FailureMode::Open
+        );
+        assert_eq!(
+            failure_mode_for(MessageClass::PassiveResponse),
+            FailureMode::Open
         );
     }
 }
