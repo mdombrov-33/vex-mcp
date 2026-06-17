@@ -1,5 +1,6 @@
 mod detect;
 mod domain;
+mod pin;
 mod protocol;
 
 use std::collections::HashMap;
@@ -56,7 +57,7 @@ fn classify_and_record(
     domain::MessageClass::Unknown
 }
 
-fn inspect_tool_list_response(line: &str) {
+fn inspect_tool_list_response(line: &str, server_id: &domain::ServerId, pin_store: &mut pin::PinStore) {
     let Ok(resp) = serde_json::from_str::<protocol::RawJsonRpcResponse>(line) else {
         tracing::warn!("tools/list response could not be re-parsed for inspection");
         return;
@@ -73,33 +74,70 @@ fn inspect_tool_list_response(line: &str) {
     };
 
     for tool in tools {
-        let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("<unknown>");
+        let name_str = tool.get("name").and_then(|n| n.as_str()).unwrap_or("<unknown>");
+
+        let tool_name = match domain::ToolName::parse(name_str.to_owned()) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::debug!(tool = %name_str, error = %e, "tool name invalid, skipping");
+                continue;
+            }
+        };
+
         let Some(desc_str) = tool.get("description").and_then(|d| d.as_str()) else {
-            tracing::debug!(tool = %name, "tool has no description, skipping");
+            tracing::debug!(tool = %name_str, "tool has no description, skipping");
             continue;
         };
 
         let desc = match domain::ToolDescription::parse(desc_str.to_owned()) {
             Ok(d) => d,
             Err(e) => {
-                tracing::debug!(tool = %name, error = %e, "tool description invalid, skipping");
+                tracing::debug!(tool = %name_str, error = %e, "tool description invalid, skipping");
                 continue;
             }
         };
 
-        let findings = detect::poisoning::scan_tool_description(&desc);
-        if findings.is_empty() {
-            tracing::debug!(tool = %name, "tool description clean");
-        } else {
-            for finding in &findings {
-                tracing::warn!(
-                    tool = %name,
-                    rule_id = finding.rule_id,
-                    severity = ?finding.severity,
-                    message = %finding.message,
-                    "FINDING: tool description flagged",
-                );
-            }
+        let input_schema = tool
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        let def = domain::ToolDefinition {
+            name: tool_name,
+            description: desc,
+            input_schema,
+        };
+
+        let poisoning_findings = detect::poisoning::scan_tool_description(&def.description);
+        for finding in &poisoning_findings {
+            tracing::warn!(
+                tool = %name_str,
+                rule_id = finding.rule_id,
+                severity = ?finding.severity,
+                message = %finding.message,
+                "FINDING: tool description flagged",
+            );
+        }
+        if poisoning_findings.is_empty() {
+            tracing::debug!(tool = %name_str, "tool description clean");
+        }
+
+        let drift_findings = detect::drift::detect_drift(&def, server_id, pin_store);
+        for finding in &drift_findings {
+            tracing::warn!(
+                tool = %name_str,
+                rule_id = finding.rule_id,
+                severity = ?finding.severity,
+                message = %finding.message,
+                "FINDING: tool drift detected",
+            );
+        }
+
+        let current_hash = def.hash();
+        pin_store.upsert(server_id, &def.name, current_hash);
+
+        if let Err(e) = pin_store.save() {
+            tracing::warn!(error = %e, "failed to persist pin store");
         }
     }
 }
@@ -126,6 +164,13 @@ async fn main() -> std::io::Result<()> {
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+
+    let server_id = domain::ServerId::parse(command.clone())
+        .expect("command name must be a valid server id");
+
+    let pin_store_path = std::env::var("VEX_PIN_STORE").unwrap_or_else(|_| "pins.json".to_owned());
+    let mut pin_store = pin::PinStore::load(&pin_store_path)
+        .expect("failed to load pin store");
 
     let mut pending: HashMap<domain::RequestId, String> = HashMap::new();
     let mut client_lines = io::BufReader::new(stdin).lines();
@@ -157,7 +202,7 @@ async fn main() -> std::io::Result<()> {
                     Some(line) => {
                         let class = classify_and_record("server_to_client", &line, &mut pending);
                         if class == domain::MessageClass::ToolListResponse {
-                            inspect_tool_list_response(&line);
+                            inspect_tool_list_response(&line, &server_id, &mut pin_store);
                         }
                         stdout.write_all(line.as_bytes()).await?;
                         stdout.write_all(b"\n").await?;

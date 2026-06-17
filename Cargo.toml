@@ -10,3 +10,9 @@ tokio = { version = "1.52.3", features = ["process", "io-util", "macros", "rt-mu
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 regex = "1.12.4"
+sha2 = "0.11.0"
+hex = "0.4.3"
+anyhow = "1.0.102"
+
+[dev-dependencies]
+tempfile = "3.27.0"

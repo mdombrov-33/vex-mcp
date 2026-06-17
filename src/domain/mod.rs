@@ -61,6 +61,90 @@ impl AsRef<str> for ToolDescription {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ServerId(String);
+
+impl ServerId {
+    pub fn parse(value: String) -> Result<Self, String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err("server id cannot be empty".into());
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+}
+
+impl AsRef<str> for ServerId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ToolName(String);
+
+impl ToolName {
+    pub fn parse(value: String) -> Result<Self, String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err("tool name cannot be empty".into());
+        }
+        if trimmed.len() > 128 {
+            return Err("tool name is too long".into());
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+}
+
+impl AsRef<str> for ToolName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolDefinitionHash(String);
+
+impl ToolDefinitionHash {
+    pub fn from_hex(hex: String) -> Self {
+        Self(hex)
+    }
+}
+
+impl AsRef<str> for ToolDefinitionHash {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolDefinition {
+    pub name: ToolName,
+    pub description: ToolDescription,
+    pub input_schema: serde_json::Value,
+}
+
+impl ToolDefinition {
+    pub fn hash(&self) -> ToolDefinitionHash {
+        use sha2::Digest;
+        let bytes = serde_json::to_vec(self).expect("ToolDefinition is always serializable");
+        let digest = sha2::Sha256::digest(&bytes);
+        ToolDefinitionHash(hex::encode(digest))
+    }
+}
+
+impl serde::Serialize for ToolName {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.0)
+    }
+}
+
+impl serde::Serialize for ToolDescription {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
