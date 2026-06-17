@@ -244,6 +244,8 @@ The `detect/` modules are deliberately shaped like _pure functions over a messag
 - `aho-corasick` — if you end up with many keyword patterns, this does multi-pattern matching in a single pass, which is the right tool when the naive approach would be N regex passes.
 - `unicode-security` / `unicode-normalization` — for homoglyph and confusable detection and for normalizing before matching, so "i​g​n​o​r​e" with zero-width joiners doesn't slip past.
 
+**Pattern research:** specific regex strings, zero-width rune lists, homoglyph codepoint tables, Vex-specific patterns (sensitive resource references, secrecy instructions, cross-tool orchestration), and a labeled test corpus structure are documented in `docs/reference/injection-pattern-research.md`. Read that before implementing M2 — it is self-contained and does not depend on any external project.
+
 ### 3.2 Description pinning + drift detection (the rug-pull defense)
 
 **The threat.** A tool is harmless when the user approves it and malicious later. The window between approval-time and execution-time is the vulnerability — same tool name, changed behavior, changed description. The security reference's prescription is explicit: _verify tools at execution time, content-address descriptions, monitor for behavior change._
