@@ -1,3 +1,4 @@
+mod detect;
 mod domain;
 mod protocol;
 
@@ -55,8 +56,55 @@ fn classify_and_record(
     domain::MessageClass::Unknown
 }
 
-#[tokio::main]
+fn inspect_tool_list_response(line: &str) {
+    let Ok(resp) = serde_json::from_str::<protocol::RawJsonRpcResponse>(line) else {
+        tracing::warn!("tools/list response could not be re-parsed for inspection");
+        return;
+    };
 
+    let Some(result) = resp.result else {
+        tracing::warn!("tools/list response has no result field");
+        return;
+    };
+
+    let Some(tools) = result.get("tools").and_then(|t| t.as_array()) else {
+        tracing::warn!("tools/list result has no tools array");
+        return;
+    };
+
+    for tool in tools {
+        let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("<unknown>");
+        let Some(desc_str) = tool.get("description").and_then(|d| d.as_str()) else {
+            tracing::debug!(tool = %name, "tool has no description, skipping");
+            continue;
+        };
+
+        let desc = match domain::ToolDescription::parse(desc_str.to_owned()) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::debug!(tool = %name, error = %e, "tool description invalid, skipping");
+                continue;
+            }
+        };
+
+        let findings = detect::poisoning::scan_tool_description(&desc);
+        if findings.is_empty() {
+            tracing::debug!(tool = %name, "tool description clean");
+        } else {
+            for finding in &findings {
+                tracing::warn!(
+                    tool = %name,
+                    rule_id = finding.rule_id,
+                    severity = ?finding.severity,
+                    message = %finding.message,
+                    "FINDING: tool description flagged",
+                );
+            }
+        }
+    }
+}
+
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     init_telemetry();
 
@@ -107,7 +155,10 @@ async fn main() -> std::io::Result<()> {
             line = server_lines.next_line(), if !server_done => {
                 match line? {
                     Some(line) => {
-                        classify_and_record("server_to_client", &line, &mut pending);
+                        let class = classify_and_record("server_to_client", &line, &mut pending);
+                        if class == domain::MessageClass::ToolListResponse {
+                            inspect_tool_list_response(&line);
+                        }
                         stdout.write_all(line.as_bytes()).await?;
                         stdout.write_all(b"\n").await?;
                         stdout.flush().await?;

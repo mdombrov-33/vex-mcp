@@ -43,6 +43,24 @@ pub fn classify_response(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolDescription(String);
+
+impl ToolDescription {
+    pub fn parse(raw: String) -> Result<Self, String> {
+        if raw.is_empty() {
+            return Err("tool description must not be empty".into());
+        }
+        Ok(Self(raw))
+    }
+}
+
+impl AsRef<str> for ToolDescription {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

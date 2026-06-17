@@ -18,7 +18,6 @@ pub struct RawJsonRpcResponse {
     #[allow(dead_code)]
     pub jsonrpc: String,
     pub id: Option<serde_json::Value>,
-    #[allow(dead_code)]
     #[serde(default)]
     pub result: Option<serde_json::Value>,
     #[allow(dead_code)]
