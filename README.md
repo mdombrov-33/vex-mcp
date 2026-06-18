@@ -151,6 +151,12 @@ npm install -g vex-mcp       # then: vex-mcp <server-command> ...
 uv tool install vex-mcp      # then: vex-mcp <server-command> ...
 ```
 
+### cargo (crates.io)
+
+```sh
+cargo install vex-mcp
+```
+
 ### Build from source
 
 ```sh

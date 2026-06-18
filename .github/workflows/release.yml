@@ -169,3 +169,37 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install twine
+        run: python -m pip install --upgrade twine
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble wheels
+        run: python pypi/build.py "${GITHUB_REF#refs/tags/v}" dist pypi/dist
+
+      - name: Check wheels
+        run: twine check pypi/dist/*
+
+      - name: Publish to PyPI
+        # --skip-existing makes reruns / partial failures safe (per-file idempotency).
+        run: twine upload --skip-existing pypi/dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}

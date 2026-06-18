@@ -1,0 +1,29 @@
+# PyPI package metadata for vex-mcp.
+#
+# This is NOT built by a Python build backend. The wheels are assembled from
+# the prebuilt release binaries by pypi/build.py (mirroring npm/build.mjs),
+# which reads the [project] table below to write each wheel's METADATA. The
+# version is injected from the git tag at build time, hence `dynamic`.
+
+[project]
+name = "vex-mcp"
+description = "A transparent MCP security proxy: inspects tool descriptions for injection, pins tool definitions to detect rug-pulls, enforces a default-deny capability policy, and writes a tamper-evident audit log."
+license = "MIT"
+requires-python = ">=3.8"
+readme = "README.md"
+keywords = ["mcp", "security", "proxy", "llm", "ai-security"]
+authors = [{ name = "Maksym Dombrov" }]
+dynamic = ["version"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Environment :: Console",
+    "Topic :: Security",
+    "Topic :: Software Development",
+]
+
+[project.urls]
+Homepage = "https://github.com/mdombrov-33/vex-mcp"
+Repository = "https://github.com/mdombrov-33/vex-mcp"

@@ -1,6 +1,6 @@
 [package]
 name = "vex-mcp"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "A transparent MCP security proxy: inspects tool descriptions for injection, pins tool definitions to detect rug-pulls, enforces a default-deny capability policy, and writes a tamper-evident audit log."
 license = "MIT"

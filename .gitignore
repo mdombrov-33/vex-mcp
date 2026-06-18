@@ -9,5 +9,8 @@ docs/handoff.md
 # npm platform packages (binaries assembled in CI by npm/build.mjs)
 /npm/platforms/
 
+# PyPI wheels (assembled in CI by pypi/build.py)
+/pypi/dist/
+
 # macOS
 .DS_Store
