@@ -123,26 +123,26 @@ vex-mcp verify vex-audit.log
 ### npx (no install)
 
 ```sh
-npx vex-mcp@latest -- <server-command> [args...]
+npx vex-mcp@latest <server-command> [args...]
 ```
 
 ### pnpm dlx (no install)
 
 ```sh
-pnpm dlx vex-mcp -- <server-command> [args...]
+pnpm dlx vex-mcp <server-command> [args...]
 ```
 
 ### uvx (no install)
 
 ```sh
-uvx vex-mcp -- <server-command> [args...]
+uvx vex-mcp <server-command> [args...]
 ```
 
 ### Global install
 
 ```sh
-npm install -g vex-mcp       # then: vex-mcp -- ...
-uv tool install vex-mcp      # then: vex-mcp -- ...
+npm install -g vex-mcp       # then: vex-mcp <server-command> ...
+uv tool install vex-mcp      # then: vex-mcp <server-command> ...
 ```
 
 ### Build from source
@@ -164,7 +164,8 @@ Change your MCP server's spawn command to go through Vex.
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["vex-mcp@latest", "--config", "vex.toml", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"]
+      "args": ["vex-mcp@latest", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+      "env": { "VEX_CONFIG": "/absolute/path/to/vex.toml" }
     }
   }
 }
@@ -179,11 +180,12 @@ StdioServerParameters(command="npx", args=["-y", "@mcp/server-filesystem", "/dat
 # After
 StdioServerParameters(
     command="npx",
-    args=["vex-mcp@latest", "--config", "vex.toml", "--", "npx", "-y", "@mcp/server-filesystem", "/data"]
+    args=["vex-mcp@latest", "npx", "-y", "@mcp/server-filesystem", "/data"],
+    env={"VEX_CONFIG": "/absolute/path/to/vex.toml"},
 )
 ```
 
-Create `vex.toml` in the same directory:
+Create the `vex.toml` that `VEX_CONFIG` points at (if unset, Vex looks for `vex.toml` in the working directory):
 
 ```toml
 [server]
@@ -236,11 +238,15 @@ max_message_bytes = 1048576     # 1 MB; oversized messages are blocked before pa
 ## CLI
 
 ```sh
-# Wrap a server
-vex-mcp [--config vex.toml] -- <server-command> [args...]
+# Wrap a server (config path comes from $VEX_CONFIG, default ./vex.toml)
+vex-mcp <server-command> [args...]
 
 # Verify the audit log's hash chain
 vex-mcp verify [path/to/vex-audit.log]
+
+# Help and version
+vex-mcp --help
+vex-mcp --version
 ```
 
 Vex writes all operational logs to stderr. stdout is reserved for the MCP protocol stream.

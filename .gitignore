@@ -1,3 +1,10 @@
 /target
 docs/handoff.md
 .claude/teaching/
+
+# Vex runtime artifacts (generated when the proxy runs)
+/vex-audit.log
+/pins.json
+
+# macOS
+.DS_Store

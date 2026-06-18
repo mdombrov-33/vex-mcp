@@ -18,11 +18,47 @@ fn init_telemetry() {
         .init();
 }
 
+fn print_help() {
+    println!(
+        "\
+{name} {version} — a transparent MCP security gateway
+
+USAGE:
+    vex-mcp <server-command> [server-args...]
+    vex-mcp verify [audit-log-path]
+    vex-mcp --help | --version
+
+The primary form spawns <server-command> as a child MCP server and proxies
+JSON-RPC between your client and that server, inspecting tool descriptions,
+detecting definition drift, and enforcing the capability policy.
+
+SUBCOMMANDS:
+    verify    Verify the audit-log hash chain (default: vex-audit.log)
+
+ENVIRONMENT:
+    VEX_CONFIG    Path to the config file (default: vex.toml)",
+        name = env!("CARGO_PKG_NAME"),
+        version = env!("CARGO_PKG_VERSION"),
+    );
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_telemetry();
-
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    match args.first().map(String::as_str) {
+        Some("--help" | "-h") => {
+            print_help();
+            return Ok(());
+        }
+        Some("--version" | "-V") => {
+            println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    init_telemetry();
 
     if args.first().map(String::as_str) == Some("verify") {
         let path = args.get(1).map(String::as_str).unwrap_or("vex-audit.log");
