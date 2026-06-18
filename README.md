@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/mdombrov-33/vex-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/mdombrov-33/vex-mcp/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/vex-mcp.svg)](https://crates.io/crates/vex-mcp)
+[![npm](https://img.shields.io/npm/v/vex-mcp.svg)](https://www.npmjs.com/package/vex-mcp)
+[![PyPI](https://img.shields.io/pypi/v/vex-mcp.svg)](https://pypi.org/project/vex-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 
