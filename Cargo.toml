@@ -2,6 +2,13 @@
 name = "vex-mcp"
 version = "0.1.1"
 edition = "2024"
+description = "A transparent MCP security proxy: inspects tool descriptions for injection, pins tool definitions to detect rug-pulls, enforces a default-deny capability policy, and writes a tamper-evident audit log."
+license = "MIT"
+repository = "https://github.com/mdombrov-33/vex-mcp"
+homepage = "https://github.com/mdombrov-33/vex-mcp"
+readme = "README.md"
+keywords = ["mcp", "security", "proxy", "llm", "ai-security"]
+categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
