@@ -259,6 +259,7 @@ mod tests {
         let server_id = domain::ServerId::parse("test-server".to_owned()).unwrap();
         let policy = policy::Policy {
             default_action: policy::DefaultAction::Allow,
+            allowed_tools: vec![],
             blocked_tools: vec![domain::ToolPattern::parse("shell.exec".to_owned()).unwrap()],
             confirmation_required: vec![],
         };
@@ -278,6 +279,7 @@ mod tests {
         let server_id = domain::ServerId::parse("test-server".to_owned()).unwrap();
         let policy = policy::Policy {
             default_action: policy::DefaultAction::Allow,
+            allowed_tools: vec![],
             blocked_tools: vec![],
             confirmation_required: vec![],
         };

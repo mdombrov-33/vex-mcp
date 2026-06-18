@@ -31,6 +31,8 @@ pub struct RawServerConfig {
 pub struct RawPolicyConfig {
     pub default_action: String,
     #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    #[serde(default)]
     pub blocked_tools: Vec<String>,
     #[serde(default)]
     pub confirmation_required: Vec<String>,
@@ -49,6 +51,11 @@ impl TryFrom<RawPolicyConfig> for Policy {
                 ));
             }
         };
+        let allowed_tools = raw
+            .allowed_tools
+            .into_iter()
+            .map(ToolPattern::parse)
+            .collect::<Result<Vec<_>, _>>()?;
         let blocked_tools = raw
             .blocked_tools
             .into_iter()
@@ -61,6 +68,7 @@ impl TryFrom<RawPolicyConfig> for Policy {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Policy {
             default_action,
+            allowed_tools,
             blocked_tools,
             confirmation_required,
         })

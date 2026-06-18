@@ -37,14 +37,27 @@ pub enum DefaultAction {
 #[derive(Debug, Clone)]
 pub struct Policy {
     pub default_action: DefaultAction,
+    pub allowed_tools: Vec<ToolPattern>,
     pub blocked_tools: Vec<ToolPattern>,
     pub confirmation_required: Vec<ToolPattern>,
 }
 
 pub fn decide_tool_call(policy: &Policy, tool_name: &ToolName) -> Verdict {
+    // An explicit block always wins, even over the allow-list.
     if policy.blocked_tools.iter().any(|p| p.matches(tool_name)) {
         return Verdict::Block {
             reason: format!("tool `{}` is forbidden by policy", tool_name.as_ref()),
+        };
+    }
+    // Under default-deny, a tool must match the allow-list to proceed.
+    if matches!(policy.default_action, DefaultAction::Deny)
+        && !policy.allowed_tools.iter().any(|p| p.matches(tool_name))
+    {
+        return Verdict::Block {
+            reason: format!(
+                "tool `{}` is not in the allow-list (default-deny)",
+                tool_name.as_ref()
+            ),
         };
     }
     if policy
@@ -56,15 +69,7 @@ pub fn decide_tool_call(policy: &Policy, tool_name: &ToolName) -> Verdict {
             reason: format!("tool `{}` requires confirmation", tool_name.as_ref()),
         };
     }
-    match policy.default_action {
-        DefaultAction::Allow => Verdict::Allow,
-        DefaultAction::Deny => Verdict::Block {
-            reason: format!(
-                "tool `{}` is not explicitly allowed (default-deny)",
-                tool_name.as_ref()
-            ),
-        },
-    }
+    Verdict::Allow
 }
 
 pub fn decide_findings(class: MessageClass, findings: &[Finding]) -> Verdict {
@@ -96,17 +101,19 @@ mod tests {
     use super::*;
     use crate::detect::Severity;
 
+    fn patterns(names: &[&str]) -> Vec<ToolPattern> {
+        names
+            .iter()
+            .map(|s| ToolPattern::parse(s.to_string()).unwrap())
+            .collect()
+    }
+
     fn make_policy(default_action: DefaultAction, blocked: &[&str], confirm: &[&str]) -> Policy {
         Policy {
             default_action,
-            blocked_tools: blocked
-                .iter()
-                .map(|s| ToolPattern::parse(s.to_string()).unwrap())
-                .collect(),
-            confirmation_required: confirm
-                .iter()
-                .map(|s| ToolPattern::parse(s.to_string()).unwrap())
-                .collect(),
+            allowed_tools: Vec::new(),
+            blocked_tools: patterns(blocked),
+            confirmation_required: patterns(confirm),
         }
     }
 
@@ -155,6 +162,83 @@ mod tests {
             decide_tool_call(&policy, &tool("anything")),
             Verdict::Block { .. }
         ));
+    }
+
+    #[test]
+    fn default_deny_allows_listed_tool() {
+        let policy = Policy {
+            default_action: DefaultAction::Deny,
+            allowed_tools: patterns(&["fs.read_file"]),
+            blocked_tools: vec![],
+            confirmation_required: vec![],
+        };
+        assert_eq!(
+            decide_tool_call(&policy, &tool("fs.read_file")),
+            Verdict::Allow
+        );
+        assert!(matches!(
+            decide_tool_call(&policy, &tool("fs.delete")),
+            Verdict::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn default_deny_allow_list_honors_globs() {
+        let policy = Policy {
+            default_action: DefaultAction::Deny,
+            allowed_tools: patterns(&["fs.*"]),
+            blocked_tools: vec![],
+            confirmation_required: vec![],
+        };
+        assert_eq!(decide_tool_call(&policy, &tool("fs.read")), Verdict::Allow);
+        assert_eq!(decide_tool_call(&policy, &tool("fs.write")), Verdict::Allow);
+        assert!(matches!(
+            decide_tool_call(&policy, &tool("shell.exec")),
+            Verdict::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn blocklist_takes_precedence_over_allow_list() {
+        let policy = Policy {
+            default_action: DefaultAction::Deny,
+            allowed_tools: patterns(&["fs.*"]),
+            blocked_tools: patterns(&["fs.delete"]),
+            confirmation_required: vec![],
+        };
+        assert!(matches!(
+            decide_tool_call(&policy, &tool("fs.delete")),
+            Verdict::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn allow_list_tool_can_still_require_confirmation() {
+        let policy = Policy {
+            default_action: DefaultAction::Deny,
+            allowed_tools: patterns(&["github.create_pr"]),
+            blocked_tools: vec![],
+            confirmation_required: patterns(&["github.create_pr"]),
+        };
+        assert!(matches!(
+            decide_tool_call(&policy, &tool("github.create_pr")),
+            Verdict::RequireConfirmation { .. }
+        ));
+    }
+
+    #[test]
+    fn allow_list_is_ignored_under_default_allow() {
+        // allowed_tools only gates default-deny; under default-allow everything passes.
+        let policy = Policy {
+            default_action: DefaultAction::Allow,
+            allowed_tools: patterns(&["fs.read"]),
+            blocked_tools: vec![],
+            confirmation_required: vec![],
+        };
+        assert_eq!(
+            decide_tool_call(&policy, &tool("anything.else")),
+            Verdict::Allow
+        );
     }
 
     #[test]
