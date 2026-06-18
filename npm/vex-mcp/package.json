@@ -1,0 +1,40 @@
+{
+  "name": "vex-mcp",
+  "version": "0.1.1",
+  "description": "A transparent MCP security proxy: inspects tool descriptions for injection, pins tool definitions to detect rug-pulls, enforces a default-deny capability policy, and writes a tamper-evident audit log.",
+  "bin": {
+    "vex-mcp": "bin/cli.js"
+  },
+  "files": [
+    "bin/cli.js",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "vex-mcp-darwin-arm64": "0.1.1",
+    "vex-mcp-darwin-x64": "0.1.1",
+    "vex-mcp-linux-arm64": "0.1.1",
+    "vex-mcp-linux-x64": "0.1.1",
+    "vex-mcp-win32-x64": "0.1.1"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "proxy",
+    "llm",
+    "ai-security",
+    "prompt-injection"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/mdombrov-33/vex-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdombrov-33/vex-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mdombrov-33/vex-mcp/issues"
+  }
+}

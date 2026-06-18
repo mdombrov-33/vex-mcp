@@ -6,5 +6,8 @@ docs/handoff.md
 /vex-audit.log
 /pins.json
 
+# npm platform packages (binaries assembled in CI by npm/build.mjs)
+/npm/platforms/
+
 # macOS
 .DS_Store
