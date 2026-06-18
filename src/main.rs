@@ -1,3 +1,4 @@
+mod audit;
 mod config;
 mod detect;
 mod domain;
@@ -131,7 +132,6 @@ fn inspect_tool_list_response(
     inspections
 }
 
-/// Synthesizes a JSON-RPC error response for a blocked request and writes it to stdout.
 async fn synthesize_refusal(
     id: Option<&serde_json::Value>,
     reason: &str,
@@ -152,9 +152,52 @@ async fn synthesize_refusal(
     stdout.flush().await
 }
 
+fn verdict_label(v: &domain::Verdict) -> String {
+    match v {
+        domain::Verdict::Allow => "allow",
+        domain::Verdict::Flag { .. } => "flag",
+        domain::Verdict::Block { .. } => "block",
+        domain::Verdict::RequireConfirmation { .. } => "require_confirmation",
+    }
+    .to_owned()
+}
+
+fn message_class_label(c: domain::MessageClass) -> String {
+    match c {
+        domain::MessageClass::ToolCallRequest => "tool_call_request",
+        domain::MessageClass::ToolListResponse => "tool_list_response",
+        domain::MessageClass::KnownSafeRequest => "known_safe_request",
+        domain::MessageClass::PassiveResponse => "passive_response",
+        domain::MessageClass::Unknown => "unknown",
+    }
+    .to_owned()
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn try_append(log: &mut audit::AuditLog, record: audit::AuditRecord) {
+    if let Err(e) = log.append(record) {
+        tracing::warn!(error = %e, "failed to write audit record");
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_telemetry();
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    if args.first().map(String::as_str) == Some("verify") {
+        let path = args.get(1).map(String::as_str).unwrap_or("vex-audit.log");
+        let count = audit::verify_chain(path)?;
+        println!("chain intact: {count} record(s) verified in `{path}`");
+        return Ok(());
+    }
 
     let config_path = std::env::var("VEX_CONFIG").unwrap_or_else(|_| "vex.toml".to_owned());
     let cfg = config::load(&config_path)?;
@@ -164,8 +207,9 @@ async fn main() -> anyhow::Result<()> {
     let mut pin_store =
         pin::PinStore::load(&cfg.pin_store_path).map_err(|e| anyhow::anyhow!("{e}"))?;
     let policy = cfg.policy;
+    let mut audit_log = audit::AuditLog::open(&cfg.audit_log_path)
+        .map_err(|e| anyhow::anyhow!("could not open audit log: {e}"))?;
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
     let (command, command_args) = args
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("usage: vex-mcp <command> [args...]"))?;
@@ -209,6 +253,20 @@ async fn main() -> anyhow::Result<()> {
                             match domain::ToolName::parse(tool_name_str.to_owned()) {
                                 Ok(tool_name) => {
                                     let verdict = policy::decide_tool_call(&policy, &tool_name);
+                                    let param_shape = req.params
+                                        .get("arguments")
+                                        .map(audit::parameter_shape);
+                                    try_append(&mut audit_log, audit::AuditRecord {
+                                        timestamp: unix_now(),
+                                        direction: audit::Direction::ClientToServer,
+                                        message_class: "tool_call_request".to_owned(),
+                                        server_id: server_id.as_ref().to_owned(),
+                                        tool_name: Some(tool_name.as_ref().to_owned()),
+                                        verdict: verdict_label(&verdict),
+                                        findings_count: 0,
+                                        param_shape,
+                                        chain_hash: String::new(),
+                                    });
                                     let action = policy::GatewayAction::from(verdict);
                                     match action {
                                         policy::GatewayAction::ForwardUnchanged => {}
@@ -229,10 +287,33 @@ async fn main() -> anyhow::Result<()> {
                                 }
                                 Err(e) => {
                                     tracing::warn!(tool = %tool_name_str, error = %e, "could not parse tool name; blocking");
+                                    try_append(&mut audit_log, audit::AuditRecord {
+                                        timestamp: unix_now(),
+                                        direction: audit::Direction::ClientToServer,
+                                        message_class: "tool_call_request".to_owned(),
+                                        server_id: server_id.as_ref().to_owned(),
+                                        tool_name: Some(tool_name_str.to_owned()),
+                                        verdict: "block".to_owned(),
+                                        findings_count: 0,
+                                        param_shape: None,
+                                        chain_hash: String::new(),
+                                    });
                                     synthesize_refusal(req.id.as_ref(), "invalid tool name", &mut stdout).await?;
                                     continue;
                                 }
                             }
+                        } else {
+                            try_append(&mut audit_log, audit::AuditRecord {
+                                timestamp: unix_now(),
+                                direction: audit::Direction::ClientToServer,
+                                message_class: message_class_label(class),
+                                server_id: server_id.as_ref().to_owned(),
+                                tool_name: None,
+                                verdict: "allow".to_owned(),
+                                findings_count: 0,
+                                param_shape: None,
+                                chain_hash: String::new(),
+                            });
                         }
 
                         if let Some(child_stdin) = child_stdin.as_mut() {
@@ -264,6 +345,17 @@ async fn main() -> anyhow::Result<()> {
                             for inspection in &inspections {
                                 let tool = inspection.name.as_ref();
                                 let verdict = policy::decide_findings(class, &inspection.findings);
+                                try_append(&mut audit_log, audit::AuditRecord {
+                                    timestamp: unix_now(),
+                                    direction: audit::Direction::ServerToClient,
+                                    message_class: "tool_list_response".to_owned(),
+                                    server_id: server_id.as_ref().to_owned(),
+                                    tool_name: Some(tool.to_owned()),
+                                    verdict: verdict_label(&verdict),
+                                    findings_count: inspection.findings.len(),
+                                    param_shape: None,
+                                    chain_hash: String::new(),
+                                });
                                 match verdict {
                                     domain::Verdict::Allow => {
                                         tracing::debug!(%tool, "tool clean");
@@ -298,6 +390,18 @@ async fn main() -> anyhow::Result<()> {
                                 tracing::error!("suppressing poisoned tools/list response");
                                 continue;
                             }
+                        } else {
+                            try_append(&mut audit_log, audit::AuditRecord {
+                                timestamp: unix_now(),
+                                direction: audit::Direction::ServerToClient,
+                                message_class: message_class_label(class),
+                                server_id: server_id.as_ref().to_owned(),
+                                tool_name: None,
+                                verdict: "allow".to_owned(),
+                                findings_count: 0,
+                                param_shape: None,
+                                chain_hash: String::new(),
+                            });
                         }
 
                         stdout.write_all(line.as_bytes()).await?;

@@ -5,6 +5,12 @@ use crate::policy::{DefaultAction, Policy};
 pub struct RawConfig {
     pub server: RawServerConfig,
     pub policy: RawPolicyConfig,
+    pub audit: Option<RawAuditConfig>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RawAuditConfig {
+    pub path: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -57,6 +63,7 @@ pub struct LoadedConfig {
     pub server_id: String,
     pub pin_store_path: String,
     pub policy: Policy,
+    pub audit_log_path: String,
 }
 
 pub fn load(path: &str) -> anyhow::Result<LoadedConfig> {
@@ -73,6 +80,10 @@ pub fn load(path: &str) -> anyhow::Result<LoadedConfig> {
             .unwrap_or_else(|| "pins.json".to_owned()),
         server_id: config.server.id,
         policy,
+        audit_log_path: config
+            .audit
+            .and_then(|a| a.path)
+            .unwrap_or_else(|| "vex-audit.log".to_owned()),
     })
 }
 

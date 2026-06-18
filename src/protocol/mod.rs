@@ -2,7 +2,6 @@
 pub struct RawJsonRpcRequest {
     pub id: Option<serde_json::Value>,
     pub method: String,
-    #[allow(dead_code)]
     #[serde(default)]
     pub params: serde_json::Value,
 }
