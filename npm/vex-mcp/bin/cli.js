@@ -13,11 +13,11 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const PLATFORM_PACKAGES = {
-  "darwin arm64": "vex-mcp-darwin-arm64",
-  "darwin x64": "vex-mcp-darwin-x64",
-  "linux arm64": "vex-mcp-linux-arm64",
-  "linux x64": "vex-mcp-linux-x64",
-  "win32 x64": "vex-mcp-win32-x64",
+  "darwin arm64": "@vexenbay/vex-mcp-darwin-arm64",
+  "darwin x64": "@vexenbay/vex-mcp-darwin-x64",
+  "linux arm64": "@vexenbay/vex-mcp-linux-arm64",
+  "linux x64": "@vexenbay/vex-mcp-linux-x64",
+  "win32 x64": "@vexenbay/vex-mcp-win32-x64",
 };
 
 const key = `${process.platform} ${process.arch}`;

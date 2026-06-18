@@ -28,11 +28,11 @@ if (!version || !distDir) {
 
 // Rust target triple -> npm platform package metadata.
 const TARGETS = [
-  { triple: "aarch64-apple-darwin", pkg: "vex-mcp-darwin-arm64", os: "darwin", cpu: "arm64", windows: false },
-  { triple: "x86_64-apple-darwin", pkg: "vex-mcp-darwin-x64", os: "darwin", cpu: "x64", windows: false },
-  { triple: "aarch64-unknown-linux-musl", pkg: "vex-mcp-linux-arm64", os: "linux", cpu: "arm64", windows: false },
-  { triple: "x86_64-unknown-linux-musl", pkg: "vex-mcp-linux-x64", os: "linux", cpu: "x64", windows: false },
-  { triple: "x86_64-pc-windows-msvc", pkg: "vex-mcp-win32-x64", os: "win32", cpu: "x64", windows: true },
+  { triple: "aarch64-apple-darwin", pkg: "@vexenbay/vex-mcp-darwin-arm64", os: "darwin", cpu: "arm64", windows: false },
+  { triple: "x86_64-apple-darwin", pkg: "@vexenbay/vex-mcp-darwin-x64", os: "darwin", cpu: "x64", windows: false },
+  { triple: "aarch64-unknown-linux-musl", pkg: "@vexenbay/vex-mcp-linux-arm64", os: "linux", cpu: "arm64", windows: false },
+  { triple: "x86_64-unknown-linux-musl", pkg: "@vexenbay/vex-mcp-linux-x64", os: "linux", cpu: "x64", windows: false },
+  { triple: "x86_64-pc-windows-msvc", pkg: "@vexenbay/vex-mcp-win32-x64", os: "win32", cpu: "x64", windows: true },
 ];
 
 const platformsDir = join(__dirname, "platforms");
@@ -40,7 +40,9 @@ rmSync(platformsDir, { recursive: true, force: true });
 
 for (const t of TARGETS) {
   const binName = t.windows ? "vex-mcp.exe" : "vex-mcp";
-  const outDir = join(platformsDir, t.pkg);
+  // Flat output dir (scope stripped) so the CI publish glob stays simple;
+  // npm publishes by the manifest `name`, not the directory name.
+  const outDir = join(platformsDir, t.pkg.replace(/^@[^/]+\//, ""));
   mkdirSync(outDir, { recursive: true });
 
   // Extract the binary out of the release archive into the package dir.

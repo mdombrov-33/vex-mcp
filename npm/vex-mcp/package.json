@@ -10,11 +10,11 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "vex-mcp-darwin-arm64": "0.1.1",
-    "vex-mcp-darwin-x64": "0.1.1",
-    "vex-mcp-linux-arm64": "0.1.1",
-    "vex-mcp-linux-x64": "0.1.1",
-    "vex-mcp-win32-x64": "0.1.1"
+    "@vexenbay/vex-mcp-darwin-arm64": "0.1.1",
+    "@vexenbay/vex-mcp-darwin-x64": "0.1.1",
+    "@vexenbay/vex-mcp-linux-arm64": "0.1.1",
+    "@vexenbay/vex-mcp-linux-x64": "0.1.1",
+    "@vexenbay/vex-mcp-win32-x64": "0.1.1"
   },
   "engines": {
     "node": ">=16"

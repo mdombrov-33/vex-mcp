@@ -145,13 +145,27 @@ jobs:
 
       - name: Publish platform packages
         run: |
+          version="${GITHUB_REF#refs/tags/v}"
           for dir in npm/platforms/*/; do
+            name=$(node -p "require('./${dir}package.json').name")
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "skip ${name}@${version} (already published)"
+              continue
+            fi
             npm publish "$dir" --provenance --access public
+            # Space publishes out to avoid tripping npm's burst spam heuristic.
+            sleep 20
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish main package
-        run: npm publish npm/vex-mcp --provenance --access public
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          if npm view "vex-mcp@${version}" version >/dev/null 2>&1; then
+            echo "skip vex-mcp@${version} (already published)"
+          else
+            npm publish npm/vex-mcp --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
