@@ -3,6 +3,8 @@ use std::io::{BufWriter, Write};
 
 use anyhow::Context;
 
+use crate::domain;
+
 pub const CHAIN_SENTINEL: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -54,6 +56,88 @@ impl AuditLog {
             Some(last) => sha256_hex(last.as_bytes()),
             None => CHAIN_SENTINEL.to_owned(),
         })
+    }
+
+    pub fn emit_tool_call(
+        &mut self,
+        server_id: &domain::ServerId,
+        tool_name: &domain::ToolName,
+        verdict: &domain::Verdict,
+        param_shape: Option<serde_json::Value>,
+    ) {
+        self.try_emit(AuditRecord {
+            timestamp: unix_now(),
+            direction: Direction::ClientToServer,
+            message_class: domain::MessageClass::ToolCallRequest.to_string(),
+            server_id: server_id.as_ref().to_owned(),
+            tool_name: Some(tool_name.as_ref().to_owned()),
+            verdict: verdict.to_string(),
+            findings_count: 0,
+            param_shape,
+            chain_hash: String::new(),
+        });
+    }
+
+    pub fn emit_invalid_tool_call(&mut self, server_id: &domain::ServerId, raw_name: &str) {
+        self.try_emit(AuditRecord {
+            timestamp: unix_now(),
+            direction: Direction::ClientToServer,
+            message_class: domain::MessageClass::ToolCallRequest.to_string(),
+            server_id: server_id.as_ref().to_owned(),
+            tool_name: Some(raw_name.to_owned()),
+            verdict: domain::Verdict::Block {
+                reason: String::new(),
+            }
+            .to_string(),
+            findings_count: 0,
+            param_shape: None,
+            chain_hash: String::new(),
+        });
+    }
+
+    pub fn emit_tool_inspection(
+        &mut self,
+        server_id: &domain::ServerId,
+        tool_name: &domain::ToolName,
+        findings_count: usize,
+        verdict: &domain::Verdict,
+    ) {
+        self.try_emit(AuditRecord {
+            timestamp: unix_now(),
+            direction: Direction::ServerToClient,
+            message_class: domain::MessageClass::ToolListResponse.to_string(),
+            server_id: server_id.as_ref().to_owned(),
+            tool_name: Some(tool_name.as_ref().to_owned()),
+            verdict: verdict.to_string(),
+            findings_count,
+            param_shape: None,
+            chain_hash: String::new(),
+        });
+    }
+
+    pub fn emit_passthrough(
+        &mut self,
+        server_id: &domain::ServerId,
+        class: domain::MessageClass,
+        direction: Direction,
+    ) {
+        self.try_emit(AuditRecord {
+            timestamp: unix_now(),
+            direction,
+            message_class: class.to_string(),
+            server_id: server_id.as_ref().to_owned(),
+            tool_name: None,
+            verdict: domain::Verdict::Allow.to_string(),
+            findings_count: 0,
+            param_shape: None,
+            chain_hash: String::new(),
+        });
+    }
+
+    fn try_emit(&mut self, record: AuditRecord) {
+        if let Err(e) = self.append(record) {
+            tracing::warn!(error = %e, "failed to write audit record");
+        }
     }
 
     pub fn append(&mut self, mut record: AuditRecord) -> anyhow::Result<()> {
@@ -120,6 +204,13 @@ pub fn verify_chain(path: &str) -> anyhow::Result<usize> {
     }
 
     Ok(count)
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

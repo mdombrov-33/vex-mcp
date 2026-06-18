@@ -74,7 +74,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = PinStore::load(dir.path().join("pins.json")).unwrap();
         store.upsert(&server(), &tool("my_tool"), hash("abc123"));
-        assert_eq!(store.get(&server(), &tool("my_tool")).unwrap().as_ref(), "abc123");
+        assert_eq!(
+            store.get(&server(), &tool("my_tool")).unwrap().as_ref(),
+            "abc123"
+        );
     }
 
     #[test]
@@ -87,6 +90,9 @@ mod tests {
         store.save().unwrap();
 
         let reloaded = PinStore::load(&pin_path).unwrap();
-        assert_eq!(reloaded.get(&server(), &tool("my_tool")).unwrap().as_ref(), "deadbeef");
+        assert_eq!(
+            reloaded.get(&server(), &tool("my_tool")).unwrap().as_ref(),
+            "deadbeef"
+        );
     }
 }

@@ -26,6 +26,29 @@ pub enum Verdict {
     RequireConfirmation { reason: String },
 }
 
+impl std::fmt::Display for MessageClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageClass::ToolCallRequest => f.write_str("tool_call_request"),
+            MessageClass::ToolListResponse => f.write_str("tool_list_response"),
+            MessageClass::KnownSafeRequest => f.write_str("known_safe_request"),
+            MessageClass::PassiveResponse => f.write_str("passive_response"),
+            MessageClass::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+
+impl std::fmt::Display for Verdict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Verdict::Allow => f.write_str("allow"),
+            Verdict::Flag { .. } => f.write_str("flag"),
+            Verdict::Block { .. } => f.write_str("block"),
+            Verdict::RequireConfirmation { .. } => f.write_str("require_confirmation"),
+        }
+    }
+}
+
 pub fn failure_mode_for(class: MessageClass) -> FailureMode {
     match class {
         // Privileged actions and the tool catalog that controls them: fail closed.
