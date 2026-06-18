@@ -1,0 +1,16 @@
+[server]
+id = "my-mcp-server"
+pin_store = "pins.json"
+
+[policy]
+default_action = "allow"
+
+blocked_tools = [
+  # "shell.exec",
+  # "fs.delete",
+]
+
+confirmation_required = [
+  # "github.create_pr",
+  # "email.send",
+]

@@ -17,14 +17,13 @@ pub enum FailureMode {
 
 /// The single decision policy reaches for a message. See CONTEXT.md.
 /// `RequireConfirmation` behaves as `Block` until a confirmation channel exists (ADR-0003).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
     Allow,
-    Flag,
-    Block,
-    #[allow(dead_code)]
+    Flag { reason: String },
+    Block { reason: String },
     // reserved for ADR-0003; behaves as Block until a confirmation channel exists
-    RequireConfirmation,
+    RequireConfirmation { reason: String },
 }
 
 pub fn failure_mode_for(class: MessageClass) -> FailureMode {

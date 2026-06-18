@@ -1,3 +1,4 @@
+mod config;
 mod detect;
 mod domain;
 mod pin;
@@ -19,7 +20,11 @@ fn classify_and_record(
     direction: &'static str,
     line: &str,
     pending: &mut HashMap<domain::RequestId, String>,
-) -> (domain::MessageClass, Option<protocol::RawJsonRpcResponse>) {
+) -> (
+    domain::MessageClass,
+    Option<protocol::RawJsonRpcRequest>,
+    Option<protocol::RawJsonRpcResponse>,
+) {
     if let Ok(req) = serde_json::from_str::<protocol::RawJsonRpcRequest>(line) {
         let class = domain::classify_request(&req.method);
 
@@ -32,7 +37,7 @@ fn classify_and_record(
         }
 
         tracing::info!(%direction, method = %req.method, class = ?class, "request");
-        return (class, None);
+        return (class, Some(req), None);
     }
 
     if let Ok(resp) = serde_json::from_str::<protocol::RawJsonRpcResponse>(line) {
@@ -47,7 +52,7 @@ fn classify_and_record(
         }
 
         tracing::info!(%direction, class = ?class, "response");
-        return (class, Some(resp));
+        return (class, None, Some(resp));
     }
 
     tracing::warn!(
@@ -55,7 +60,7 @@ fn classify_and_record(
         bytes = line.len(),
         "message did not parse as a known request or response shape"
     );
-    (domain::MessageClass::Unknown, None)
+    (domain::MessageClass::Unknown, None, None)
 }
 
 fn inspect_tool_list_response(
@@ -126,14 +131,44 @@ fn inspect_tool_list_response(
     inspections
 }
 
+/// Synthesizes a JSON-RPC error response for a blocked request and writes it to stdout.
+async fn synthesize_refusal(
+    id: Option<&serde_json::Value>,
+    reason: &str,
+    stdout: &mut io::Stdout,
+) -> std::io::Result<()> {
+    let id_json = id.cloned().unwrap_or(serde_json::Value::Null);
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id_json,
+        "error": {
+            "code": -32600,
+            "message": reason,
+        }
+    });
+    let line = serde_json::to_string(&payload).expect("refusal payload is always serializable");
+    stdout.write_all(line.as_bytes()).await?;
+    stdout.write_all(b"\n").await?;
+    stdout.flush().await
+}
+
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     init_telemetry();
+
+    let config_path = std::env::var("VEX_CONFIG").unwrap_or_else(|_| "vex.toml".to_owned());
+    let cfg = config::load(&config_path)?;
+
+    let server_id = domain::ServerId::parse(cfg.server_id)
+        .map_err(|e| anyhow::anyhow!("invalid server id in config: {e}"))?;
+    let mut pin_store =
+        pin::PinStore::load(&cfg.pin_store_path).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let policy = cfg.policy;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (command, command_args) = args
         .split_first()
-        .expect("usage: vex-mcp <command> [args...]");
+        .ok_or_else(|| anyhow::anyhow!("usage: vex-mcp <command> [args...]"))?;
 
     tracing::info!(?command, ?command_args, "spawning child server");
 
@@ -149,12 +184,6 @@ async fn main() -> std::io::Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
-    let server_id =
-        domain::ServerId::parse(command.clone()).expect("command name must be a valid server id");
-
-    let pin_store_path = std::env::var("VEX_PIN_STORE").unwrap_or_else(|_| "pins.json".to_owned());
-    let mut pin_store = pin::PinStore::load(&pin_store_path).expect("failed to load pin store");
-
     let mut pending: HashMap<domain::RequestId, String> = HashMap::new();
     let mut client_lines = io::BufReader::new(stdin).lines();
     let mut server_lines = io::BufReader::new(child_stdout).lines();
@@ -167,7 +196,45 @@ async fn main() -> std::io::Result<()> {
             line = client_lines.next_line(), if !client_done => {
                 match line? {
                     Some(line) => {
-                        let _ = classify_and_record("client_to_server", &line, &mut pending);
+                        let (class, req, _resp) =
+                            classify_and_record("client_to_server", &line, &mut pending);
+
+                        if class == domain::MessageClass::ToolCallRequest
+                            && let Some(ref req) = req
+                        {
+                            let tool_name_str = req.params
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            match domain::ToolName::parse(tool_name_str.to_owned()) {
+                                Ok(tool_name) => {
+                                    let verdict = policy::decide_tool_call(&policy, &tool_name);
+                                    let action = policy::GatewayAction::from(verdict);
+                                    match action {
+                                        policy::GatewayAction::ForwardUnchanged => {}
+                                        policy::GatewayAction::ForwardWithWarning { ref warning } => {
+                                            tracing::warn!(tool = %tool_name_str, %warning, "forwarding with warning");
+                                        }
+                                        policy::GatewayAction::SynthesizeRefusal { ref reason } => {
+                                            tracing::error!(tool = %tool_name_str, %reason, "BLOCKED tool call");
+                                            synthesize_refusal(req.id.as_ref(), reason, &mut stdout).await?;
+                                            continue;
+                                        }
+                                        policy::GatewayAction::PauseForConfirmation { ref reason } => {
+                                            tracing::error!(tool = %tool_name_str, %reason, "BLOCKED (confirmation not yet implemented)");
+                                            synthesize_refusal(req.id.as_ref(), reason, &mut stdout).await?;
+                                            continue;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(tool = %tool_name_str, error = %e, "could not parse tool name; blocking");
+                                    synthesize_refusal(req.id.as_ref(), "invalid tool name", &mut stdout).await?;
+                                    continue;
+                                }
+                            }
+                        }
+
                         if let Some(child_stdin) = child_stdin.as_mut() {
                             child_stdin.write_all(line.as_bytes()).await?;
                             child_stdin.write_all(b"\n").await?;
@@ -183,37 +250,56 @@ async fn main() -> std::io::Result<()> {
             line = server_lines.next_line(), if !server_done => {
                 match line? {
                     Some(line) => {
-                        let (class, parsed) = classify_and_record("server_to_client", &line, &mut pending);
+                        let (class, _req, resp) =
+                            classify_and_record("server_to_client", &line, &mut pending);
+
                         if class == domain::MessageClass::ToolListResponse {
-                            let inspections = parsed
+                            let inspections = resp
                                 .as_ref()
-                                .map(|resp| inspect_tool_list_response(resp, &server_id, &pin_store))
+                                .map(|r| inspect_tool_list_response(r, &server_id, &pin_store))
                                 .unwrap_or_default();
+
+                            let mut should_block_response = false;
+
                             for inspection in &inspections {
                                 let tool = inspection.name.as_ref();
-                                let verdict = policy::decide(class, &inspection.findings);
+                                let verdict = policy::decide_findings(class, &inspection.findings);
                                 match verdict {
                                     domain::Verdict::Allow => {
                                         tracing::debug!(%tool, "tool clean");
                                     }
-                                    domain::Verdict::Flag => {
+                                    domain::Verdict::Flag { ref reason } => {
+                                        tracing::warn!(%tool, %reason, "FINDING flagged");
                                         for f in &inspection.findings {
-                                            tracing::warn!(%tool, rule_id = f.rule_id, severity = ?f.severity, message = %f.message, verdict = "Flag", "FINDING");
+                                            tracing::warn!(%tool, rule_id = f.rule_id, severity = ?f.severity, message = %f.message, "detail");
                                         }
                                     }
-                                    domain::Verdict::Block | domain::Verdict::RequireConfirmation => {
+                                    domain::Verdict::Block { ref reason }
+                                    | domain::Verdict::RequireConfirmation { ref reason } => {
+                                        tracing::error!(%tool, %reason, "FINDING blocked");
                                         for f in &inspection.findings {
-                                            tracing::error!(%tool, rule_id = f.rule_id, severity = ?f.severity, message = %f.message, verdict = "Block", "FINDING");
+                                            tracing::error!(%tool, rule_id = f.rule_id, severity = ?f.severity, message = %f.message, "detail");
                                         }
-                                        // M4 will synthesize a JSON-RPC error and skip forwarding.
+                                        should_block_response = true;
                                     }
                                 }
-                                pin_store.upsert(&server_id, &inspection.name, inspection.new_hash.clone());
+                                pin_store.upsert(
+                                    &server_id,
+                                    &inspection.name,
+                                    inspection.new_hash.clone(),
+                                );
                             }
+
                             if !inspections.is_empty() && let Err(e) = pin_store.save() {
                                 tracing::warn!(error = %e, "failed to persist pin store");
                             }
+
+                            if should_block_response {
+                                tracing::error!("suppressing poisoned tools/list response");
+                                continue;
+                            }
                         }
+
                         stdout.write_all(line.as_bytes()).await?;
                         stdout.write_all(b"\n").await?;
                         stdout.flush().await?;
