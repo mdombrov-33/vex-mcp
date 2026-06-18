@@ -14,6 +14,8 @@ sha2 = "0.11.0"
 hex = "0.4.3"
 anyhow = "1.0.102"
 toml = "1.1.2"
+unicode-security = "0.1.2"
+globset = "0.4.18"
 
 [dev-dependencies]
 tempfile = "3.27.0"

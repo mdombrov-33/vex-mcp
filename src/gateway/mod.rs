@@ -259,7 +259,7 @@ mod tests {
         let server_id = domain::ServerId::parse("test-server".to_owned()).unwrap();
         let policy = policy::Policy {
             default_action: policy::DefaultAction::Allow,
-            blocked_tools: vec![domain::ToolName::parse("shell.exec".to_owned()).unwrap()],
+            blocked_tools: vec![domain::ToolPattern::parse("shell.exec".to_owned()).unwrap()],
             confirmation_required: vec![],
         };
         let pin_store = pin::PinStore::load(pin_dir.path().join("pins.json")).unwrap();

@@ -1,4 +1,4 @@
-use crate::domain::ToolName;
+use crate::domain::ToolPattern;
 use crate::policy::{DefaultAction, Policy};
 use crate::rate_limit::RateLimitConfig;
 
@@ -52,12 +52,12 @@ impl TryFrom<RawPolicyConfig> for Policy {
         let blocked_tools = raw
             .blocked_tools
             .into_iter()
-            .map(ToolName::parse)
+            .map(ToolPattern::parse)
             .collect::<Result<Vec<_>, _>>()?;
         let confirmation_required = raw
             .confirmation_required
             .into_iter()
-            .map(ToolName::parse)
+            .map(ToolPattern::parse)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Policy {
             default_action,

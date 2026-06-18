@@ -155,6 +155,42 @@ impl AsRef<str> for ToolName {
     }
 }
 
+/// A policy pattern matched against a `ToolName`. Exact names match literally
+/// (globset treats `.` as a literal); wildcards (`shell.*`, `fs.write*`) match a
+/// family of tools. Distinct from `ToolName` so a glob can never masquerade as a
+/// validated exact tool name.
+#[derive(Debug, Clone)]
+pub struct ToolPattern {
+    raw: String,
+    matcher: globset::GlobMatcher,
+}
+
+impl ToolPattern {
+    pub fn parse(value: String) -> Result<Self, String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err("tool pattern cannot be empty".into());
+        }
+        let matcher = globset::Glob::new(trimmed)
+            .map_err(|e| format!("invalid tool pattern `{trimmed}`: {e}"))?
+            .compile_matcher();
+        Ok(Self {
+            raw: trimmed.to_owned(),
+            matcher,
+        })
+    }
+
+    pub fn matches(&self, name: &ToolName) -> bool {
+        self.matcher.is_match(name.as_ref())
+    }
+}
+
+impl AsRef<str> for ToolPattern {
+    fn as_ref(&self) -> &str {
+        &self.raw
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolDefinitionHash(String);
 

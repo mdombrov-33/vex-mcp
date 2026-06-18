@@ -1,5 +1,5 @@
 use crate::detect::{Finding, Severity};
-use crate::domain::{self, MessageClass, ToolName, Verdict};
+use crate::domain::{self, MessageClass, ToolName, ToolPattern, Verdict};
 
 pub enum GatewayAction {
     ForwardUnchanged,
@@ -37,17 +37,21 @@ pub enum DefaultAction {
 #[derive(Debug, Clone)]
 pub struct Policy {
     pub default_action: DefaultAction,
-    pub blocked_tools: Vec<ToolName>,
-    pub confirmation_required: Vec<ToolName>,
+    pub blocked_tools: Vec<ToolPattern>,
+    pub confirmation_required: Vec<ToolPattern>,
 }
 
 pub fn decide_tool_call(policy: &Policy, tool_name: &ToolName) -> Verdict {
-    if policy.blocked_tools.contains(tool_name) {
+    if policy.blocked_tools.iter().any(|p| p.matches(tool_name)) {
         return Verdict::Block {
             reason: format!("tool `{}` is forbidden by policy", tool_name.as_ref()),
         };
     }
-    if policy.confirmation_required.contains(tool_name) {
+    if policy
+        .confirmation_required
+        .iter()
+        .any(|p| p.matches(tool_name))
+    {
         return Verdict::RequireConfirmation {
             reason: format!("tool `{}` requires confirmation", tool_name.as_ref()),
         };
@@ -97,11 +101,11 @@ mod tests {
             default_action,
             blocked_tools: blocked
                 .iter()
-                .map(|s| ToolName::parse(s.to_string()).unwrap())
+                .map(|s| ToolPattern::parse(s.to_string()).unwrap())
                 .collect(),
             confirmation_required: confirm
                 .iter()
-                .map(|s| ToolName::parse(s.to_string()).unwrap())
+                .map(|s| ToolPattern::parse(s.to_string()).unwrap())
                 .collect(),
         }
     }
@@ -160,6 +164,35 @@ mod tests {
             decide_tool_call(&policy, &tool("shell.exec")),
             Verdict::Block { .. }
         ));
+    }
+
+    #[test]
+    fn glob_pattern_blocks_matching_family() {
+        let policy = make_policy(DefaultAction::Allow, &["shell.*"], &[]);
+        assert!(matches!(
+            decide_tool_call(&policy, &tool("shell.exec")),
+            Verdict::Block { .. }
+        ));
+        assert!(matches!(
+            decide_tool_call(&policy, &tool("shell.run")),
+            Verdict::Block { .. }
+        ));
+    }
+
+    #[test]
+    fn glob_pattern_does_not_block_unrelated_tool() {
+        let policy = make_policy(DefaultAction::Allow, &["shell.*"], &[]);
+        assert_eq!(decide_tool_call(&policy, &tool("fs.read")), Verdict::Allow);
+    }
+
+    #[test]
+    fn exact_name_still_matches_literally() {
+        // `.` is a literal in globset, so an exact name matches only itself.
+        let policy = make_policy(DefaultAction::Allow, &["shell.exec"], &[]);
+        assert_eq!(
+            decide_tool_call(&policy, &tool("shellxexec")),
+            Verdict::Allow
+        );
     }
 
     // decide_findings
