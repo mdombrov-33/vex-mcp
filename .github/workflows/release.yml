@@ -165,7 +165,7 @@ jobs:
           if npm view "vex-mcp@${version}" version >/dev/null 2>&1; then
             echo "skip vex-mcp@${version} (already published)"
           else
-            npm publish npm/vex-mcp --provenance --access public
+            npm publish ./npm/vex-mcp --provenance --access public
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
