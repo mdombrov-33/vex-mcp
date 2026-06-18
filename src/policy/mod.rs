@@ -1,8 +1,6 @@
 use crate::detect::{Finding, Severity};
 use crate::domain::{self, MessageClass, ToolName, Verdict};
 
-// GatewayAction
-
 pub enum GatewayAction {
     ForwardUnchanged,
     ForwardWithWarning {
@@ -29,8 +27,6 @@ impl From<Verdict> for GatewayAction {
         }
     }
 }
-
-// Policy
 
 #[derive(Debug, Clone)]
 pub enum DefaultAction {
