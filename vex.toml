@@ -17,3 +17,7 @@ confirmation_required = [
 
 [audit]
 path = "vex-audit.log"
+
+# [rate_limit]
+# max_calls_per_minute = 60   # tool calls per server; omit for no limit
+# max_message_bytes = 1048576 # 1 MB; omit for no limit

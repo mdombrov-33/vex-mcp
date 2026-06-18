@@ -1,11 +1,19 @@
 use crate::domain::ToolName;
 use crate::policy::{DefaultAction, Policy};
+use crate::rate_limit::RateLimitConfig;
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RawRateLimitConfig {
+    pub max_calls_per_minute: Option<u32>,
+    pub max_message_bytes: Option<usize>,
+}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct RawConfig {
     pub server: RawServerConfig,
     pub policy: RawPolicyConfig,
     pub audit: Option<RawAuditConfig>,
+    pub rate_limit: Option<RawRateLimitConfig>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -64,6 +72,7 @@ pub struct LoadedConfig {
     pub pin_store_path: String,
     pub policy: Policy,
     pub audit_log_path: String,
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 pub fn load(path: &str) -> anyhow::Result<LoadedConfig> {
@@ -84,6 +93,10 @@ pub fn load(path: &str) -> anyhow::Result<LoadedConfig> {
             .audit
             .and_then(|a| a.path)
             .unwrap_or_else(|| "vex-audit.log".to_owned()),
+        rate_limit: config.rate_limit.map(|rl| RateLimitConfig {
+            max_calls_per_minute: rl.max_calls_per_minute,
+            max_message_bytes: rl.max_message_bytes,
+        }),
     })
 }
 
@@ -133,5 +146,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(policy.confirmation_required.len(), 2);
+    }
+
+    fn parse_raw_config(toml_str: &str) -> Result<RawConfig, toml::de::Error> {
+        toml::from_str(toml_str)
+    }
+
+    #[test]
+    fn rate_limit_section_parsed_when_present() {
+        let raw = parse_raw_config(
+            r#"
+            [server]
+            id = "test"
+
+            [policy]
+            default_action = "allow"
+
+            [rate_limit]
+            max_calls_per_minute = 30
+            max_message_bytes = 524288
+            "#,
+        )
+        .unwrap();
+        let rl = raw.rate_limit.unwrap();
+        assert_eq!(rl.max_calls_per_minute, Some(30));
+        assert_eq!(rl.max_message_bytes, Some(524288));
+    }
+
+    #[test]
+    fn rate_limit_section_is_none_when_absent() {
+        let raw = parse_raw_config(
+            r#"
+            [server]
+            id = "test"
+
+            [policy]
+            default_action = "allow"
+            "#,
+        )
+        .unwrap();
+        assert!(raw.rate_limit.is_none());
+    }
+
+    #[test]
+    fn rate_limit_fields_are_individually_optional() {
+        let raw = parse_raw_config(
+            r#"
+            [server]
+            id = "test"
+
+            [policy]
+            default_action = "allow"
+
+            [rate_limit]
+            max_calls_per_minute = 60
+            "#,
+        )
+        .unwrap();
+        let rl = raw.rate_limit.unwrap();
+        assert_eq!(rl.max_calls_per_minute, Some(60));
+        assert_eq!(rl.max_message_bytes, None);
     }
 }

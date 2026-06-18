@@ -115,6 +115,23 @@ impl AuditLog {
         });
     }
 
+    pub fn emit_rate_limited(&mut self, server_id: &domain::ServerId) {
+        self.try_emit(AuditRecord {
+            timestamp: unix_now(),
+            direction: Direction::ClientToServer,
+            message_class: "rate_limited".to_owned(),
+            server_id: server_id.as_ref().to_owned(),
+            tool_name: None,
+            verdict: domain::Verdict::Block {
+                reason: String::new(),
+            }
+            .to_string(),
+            findings_count: 0,
+            param_shape: None,
+            chain_hash: String::new(),
+        });
+    }
+
     pub fn emit_passthrough(
         &mut self,
         server_id: &domain::ServerId,

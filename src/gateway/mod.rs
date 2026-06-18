@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{audit, detect, domain, pin, policy, protocol};
+use crate::{audit, detect, domain, pin, policy, protocol, rate_limit};
 
 pub enum Disposition {
     Forward,
@@ -14,6 +14,7 @@ pub struct Gateway {
     pin_store: pin::PinStore,
     audit_log: audit::AuditLog,
     pending: HashMap<domain::RequestId, String>,
+    rate_limiter: Option<rate_limit::RateLimiter>,
 }
 
 impl Gateway {
@@ -22,6 +23,7 @@ impl Gateway {
         policy: policy::Policy,
         pin_store: pin::PinStore,
         audit_log: audit::AuditLog,
+        rate_limiter: Option<rate_limit::RateLimiter>,
     ) -> Self {
         Self {
             server_id,
@@ -29,15 +31,41 @@ impl Gateway {
             pin_store,
             audit_log,
             pending: HashMap::new(),
+            rate_limiter,
         }
     }
 
     pub fn handle_client_line(&mut self, line: &str) -> Disposition {
+        let oversized = self
+            .rate_limiter
+            .as_ref()
+            .is_some_and(|rl| !rl.check_message_size(line.len()));
+        if oversized {
+            tracing::warn!(bytes = line.len(), "message exceeds max_message_bytes");
+            self.audit_log.emit_rate_limited(&self.server_id);
+            return Disposition::Refusal(make_refusal(None, "message too large"));
+        }
+
         let (class, req, _) = self.classify(line, "client_to_server");
 
         if class == domain::MessageClass::ToolCallRequest
             && let Some(ref req) = req
         {
+            let rate_exceeded = if let Some(ref mut rl) = self.rate_limiter {
+                !rl.check_tool_call(&self.server_id, std::time::Instant::now())
+            } else {
+                false
+            };
+            if rate_exceeded {
+                let tool = req
+                    .params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                tracing::warn!(%tool, "tool call rate limit exceeded");
+                self.audit_log.emit_rate_limited(&self.server_id);
+                return Disposition::Refusal(make_refusal(req.id.as_ref(), "rate limit exceeded"));
+            }
             return self.enforce_tool_call(req);
         }
 
@@ -237,7 +265,30 @@ mod tests {
         let pin_store = pin::PinStore::load(pin_dir.path().join("pins.json")).unwrap();
         let audit_log = audit::AuditLog::open(audit_file.path().to_str().unwrap()).unwrap();
 
-        Gateway::new(server_id, policy, pin_store, audit_log)
+        Gateway::new(server_id, policy, pin_store, audit_log, None)
+    }
+
+    fn make_gateway_with_limits(
+        max_calls_per_minute: Option<u32>,
+        max_message_bytes: Option<usize>,
+    ) -> Gateway {
+        let pin_dir = tempfile::tempdir().unwrap();
+        let audit_file = NamedTempFile::new().unwrap();
+
+        let server_id = domain::ServerId::parse("test-server".to_owned()).unwrap();
+        let policy = policy::Policy {
+            default_action: policy::DefaultAction::Allow,
+            blocked_tools: vec![],
+            confirmation_required: vec![],
+        };
+        let pin_store = pin::PinStore::load(pin_dir.path().join("pins.json")).unwrap();
+        let audit_log = audit::AuditLog::open(audit_file.path().to_str().unwrap()).unwrap();
+        let limiter = rate_limit::RateLimiter::new(rate_limit::RateLimitConfig {
+            max_calls_per_minute,
+            max_message_bytes,
+        });
+
+        Gateway::new(server_id, policy, pin_store, audit_log, Some(limiter))
     }
 
     fn tool_call_line(id: u64, tool: &str) -> String {
@@ -354,6 +405,66 @@ mod tests {
             assert!(parsed["error"]["message"].is_string());
         } else {
             panic!("expected Refusal");
+        }
+    }
+
+    #[test]
+    fn rate_limited_tool_call_returns_refusal() {
+        let mut gw = make_gateway_with_limits(Some(2), None);
+        assert!(matches!(
+            gw.handle_client_line(&tool_call_line(1, "safe_tool")),
+            Disposition::Forward
+        ));
+        assert!(matches!(
+            gw.handle_client_line(&tool_call_line(2, "safe_tool")),
+            Disposition::Forward
+        ));
+        assert!(matches!(
+            gw.handle_client_line(&tool_call_line(3, "safe_tool")),
+            Disposition::Refusal(_)
+        ));
+    }
+
+    #[test]
+    fn rate_limit_refusal_carries_request_id() {
+        let mut gw = make_gateway_with_limits(Some(1), None);
+        gw.handle_client_line(&tool_call_line(1, "safe_tool"));
+        if let Disposition::Refusal(json) = gw.handle_client_line(&tool_call_line(99, "safe_tool"))
+        {
+            let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed["id"], serde_json::json!(99));
+        } else {
+            panic!("expected Refusal");
+        }
+    }
+
+    #[test]
+    fn oversized_message_returns_refusal() {
+        let mut gw = make_gateway_with_limits(None, Some(10));
+        let long_line = "x".repeat(11);
+        assert!(matches!(
+            gw.handle_client_line(&long_line),
+            Disposition::Refusal(_)
+        ));
+    }
+
+    #[test]
+    fn message_at_size_limit_is_not_rejected_for_size() {
+        let mut gw = make_gateway_with_limits(None, Some(1024));
+        // A real JSON-RPC tool call well under the limit should still forward normally
+        let line = tool_call_line(1, "safe_tool");
+        assert!(line.len() <= 1024);
+        assert!(matches!(gw.handle_client_line(&line), Disposition::Forward));
+    }
+
+    #[test]
+    fn no_rate_limit_allows_unlimited_calls() {
+        let mut gw = make_gateway_with_limits(None, None);
+        for i in 0..100 {
+            assert!(matches!(
+                gw.handle_client_line(&tool_call_line(i, "safe_tool")),
+                Disposition::Forward
+            ));
         }
     }
 }

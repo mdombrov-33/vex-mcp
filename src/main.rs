@@ -6,6 +6,7 @@ mod gateway;
 mod pin;
 mod policy;
 mod protocol;
+mod rate_limit;
 
 use std::process::Stdio;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
@@ -39,7 +40,8 @@ async fn main() -> anyhow::Result<()> {
     let audit_log = audit::AuditLog::open(&cfg.audit_log_path)
         .map_err(|e| anyhow::anyhow!("could not open audit log: {e}"))?;
 
-    let mut gw = gateway::Gateway::new(server_id, cfg.policy, pin_store, audit_log);
+    let rate_limiter = cfg.rate_limit.map(rate_limit::RateLimiter::new);
+    let mut gw = gateway::Gateway::new(server_id, cfg.policy, pin_store, audit_log, rate_limiter);
 
     let (command, command_args) = args
         .split_first()
