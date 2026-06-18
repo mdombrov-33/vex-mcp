@@ -67,9 +67,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 A transparent MCP security proxy, written in Rust, that sits between an MCP client and the servers it talks to — inspecting tool descriptions for injection, pinning tool definitions to detect rug-pulls, enforcing a default-deny capability policy, and writing a tamper-evident audit log. **Full rationale, threat model, and worked code live in `DESIGN.md`. This file is the every-session rules; `DESIGN.md` is the reference you read on demand.**
 
-**This is a learning project first.** The point is learning Rust properly — ownership, async, lifetimes, the type system — by building one real tool, not by going fast. When in doubt between "the idiomatic Rust way" and "the quick way," prefer idiomatic, and explain the difference if it's non-obvious. Favor std/`tokio` over pulling in a new crate unless the crate is the point of the lesson.
+**Vex is shipping software.** The priority is a correct, auditable, distributable tool. Prefer idiomatic Rust over shortcuts, and favor std/`tokio` over pulling in a new crate unless it earns its place — Vex is meant to be trusted and audited, so keep the dependency surface small.
 
-**Build order matters.** Work milestone by milestone: (M0) transparent byte-forwarding proxy spawning the real MCP server as a child process → (M1) parse/classify the JSON-RPC stream → (M2) tool-description injection scanner, the first real detector → (M3) hash-based pinning + drift detection → (M4) policy engine (default-deny allowlist, verdict types) → (M5) tamper-evident hash-chained audit log. Each milestone is scoped to teach a specific slice of Rust in isolation. Don't jump ahead because a later feature seems easy. If a task seems to require a later milestone's concepts early, **say so** rather than quietly doing it. (Full milestone detail: `DESIGN.md` §5.)
+**Current state: v1 is built.** The transparent stdio proxy, JSON-RPC parsing/classification, tool-description scanning, pinning + drift detection, the default-deny policy engine, the tamper-evident audit log, and rate limiting are all complete and tested. The architecture, threat model, and implementation conventions are in `DESIGN.md`; the public roadmap is in `README.md`. Read `DESIGN.md` before non-trivial changes.
 
 ---
 
@@ -99,7 +99,7 @@ Apply these by default; the worked code for each is in `DESIGN.md` §10, and §1
 - **Errors:** small explicit errors in domain code; `anyhow` with `.context(...)` at the application edge. (§10.15)
 - **Tests:** unit tests next to the domain type (`#[cfg(test)]`); **corpus tests** (malicious + deliberate near-miss benign) for every detector — a description legitimately containing "ignore" must not trip; **black-box tests** drive the whole proxy and assert side effects (forwarded / blocked / refusal synthesized / audit record written / pin updated / drift detected), not just return values; detectors **never panic** on attacker input. (§10.11–§10.14)
 - **CI** runs `cargo fmt -- --check`, `cargo clippy -- -D warnings`, `cargo test` on every change. Red `main` = broken security boundary. (§10.16)
-- **Avoid `unsafe`. Avoid reflexive `clone()` to silence the borrow checker** — use ownership intentionally. When ownership gets hard, that's the lesson; sit in it.
+- **Avoid `unsafe`. Avoid reflexive `clone()` to silence the borrow checker** — use ownership intentionally.
 
 > The throughline: **use the type system and tests as part of the design, not as cleanup afterward.** If a change makes an invalid state representable, that's a design smell — reach for a type before reaching for a runtime check.
 
@@ -117,4 +117,4 @@ Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 
 ### Domain docs
 
-Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root (not yet created; `DESIGN.md` currently fills this role). See `docs/agents/domain.md`.
+Single-context — one `CONTEXT.md` (ubiquitous language) + `docs/adr/` (decision records) at the repo root. See `docs/agents/domain.md`.
