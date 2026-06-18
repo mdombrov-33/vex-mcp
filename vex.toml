@@ -21,6 +21,8 @@ blocked_tools = [
   # "shell.*",
 ]
 
+# Currently behaves like a block (no live prompt yet — see ADR-0003 / roadmap).
+# A human "approves" by editing this file, not by answering a prompt.
 confirmation_required = [
   # "github.create_pr",
   # "email.send",

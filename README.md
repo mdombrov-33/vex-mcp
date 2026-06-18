@@ -319,6 +319,7 @@ An opt-in classifier / embedding pass that runs *behind* the deterministic rules
 Smaller quality-of-life items, not headline features:
 
 - **Drift approval CLI** — review and approve detected drift without hand-editing the pin store.
+- **Confirmation channel** — a side-channel (CLI prompt / local socket / companion UI) so `confirmation_required` tools pause for live human approval instead of being blocked. The verdict exists today but behaves like a block, since a transparent stdio proxy has no way to surface a prompt (ADR-0003).
 - **Hot config reload** — change policy without restarting the connection.
 
 ---
