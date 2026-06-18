@@ -3,13 +3,21 @@ id = "my-mcp-server"
 pin_store = "pins.json"
 
 [policy]
-default_action = "allow"
+default_action = "deny"   # "deny": only allowed_tools pass. "allow": everything except blocked_tools
 
 # Tool names match literally; `*`, `?`, and `[...]` are glob wildcards.
 # e.g. "shell.*" matches shell.exec, shell.run, …
+
+# Under default-deny, list the tools the model is permitted to call:
+allowed_tools = [
+  # "filesystem.read_file",
+  # "filesystem.list_directory",
+]
+
+# An explicit block wins even over allowed_tools / default-allow:
 blocked_tools = [
   # "shell.exec",
-  # "fs.delete",
+  # "filesystem.delete",
   # "shell.*",
 ]
 

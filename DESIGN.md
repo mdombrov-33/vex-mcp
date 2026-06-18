@@ -621,6 +621,7 @@ Keep policy separate from detection. Detectors produce findings; policy decides 
 #[derive(Debug, Clone)]
 pub struct Policy {
     pub default_action: DefaultAction,
+    pub allowed_tools: Vec<ToolName>,
     pub blocked_tools: Vec<ToolName>,
     pub confirmation_required: Vec<ToolName>,
 }
@@ -629,9 +630,18 @@ pub struct Policy {
 pub enum DefaultAction { Allow, Deny }
 
 pub fn decide_tool_call(policy: &Policy, call: &ToolCall) -> Verdict {
+    // An explicit block always wins, even over the allow-list.
     if policy.blocked_tools.contains(&call.tool_name) {
         return Verdict::Block {
             reason: format!("tool `{}` is forbidden by policy", call.tool_name.as_ref()),
+        };
+    }
+    // Under default-deny, a tool must be on the allow-list to proceed.
+    if matches!(policy.default_action, DefaultAction::Deny)
+        && !policy.allowed_tools.contains(&call.tool_name)
+    {
+        return Verdict::Block {
+            reason: format!("tool `{}` is not in the allow-list (default-deny)", call.tool_name.as_ref()),
         };
     }
     if policy.confirmation_required.contains(&call.tool_name) {
@@ -639,12 +649,7 @@ pub fn decide_tool_call(policy: &Policy, call: &ToolCall) -> Verdict {
             reason: format!("tool `{}` requires confirmation", call.tool_name.as_ref()),
         };
     }
-    match policy.default_action {
-        DefaultAction::Allow => Verdict::Allow,
-        DefaultAction::Deny => Verdict::Block {
-            reason: format!("tool `{}` is not explicitly allowed", call.tool_name.as_ref()),
-        },
-    }
+    Verdict::Allow
 }
 
 pub fn decide_findings(findings: &[Finding]) -> Verdict {
@@ -716,6 +721,8 @@ Raw TOML should not leak past `config/`. Parse once, convert into the domain `Po
 pub struct RawPolicyConfig {
     pub default_action: String,
     #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    #[serde(default)]
     pub blocked_tools: Vec<String>,
     #[serde(default)]
     pub confirmation_required: Vec<String>,
@@ -730,17 +737,24 @@ impl TryFrom<RawPolicyConfig> for Policy {
             "deny" => DefaultAction::Deny,
             other => return Err(format!("unknown default_action `{other}`")),
         };
+        let allowed_tools = raw.allowed_tools.into_iter()
+            .map(ToolName::parse).collect::<Result<Vec<_>, _>>()?;
         let blocked_tools = raw.blocked_tools.into_iter()
             .map(ToolName::parse).collect::<Result<Vec<_>, _>>()?;
         let confirmation_required = raw.confirmation_required.into_iter()
             .map(ToolName::parse).collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { default_action, blocked_tools, confirmation_required })
+        Ok(Self { default_action, allowed_tools, blocked_tools, confirmation_required })
     }
 }
 ```
 
 ```toml
 default_action = "deny"
+
+allowed_tools = [
+  "filesystem.read_file",
+  "filesystem.list_directory",
+]
 
 blocked_tools = [
   "filesystem.delete",

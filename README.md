@@ -97,16 +97,20 @@ Rug pulls surface immediately. A typo fix and a malicious injection both count a
 
 ```toml
 [policy]
-default_action = "deny"    # only explicitly listed tools pass
+default_action = "deny"      # only tools on the allow-list can be called
+
+allowed_tools = [
+  "filesystem.read_file",
+  "filesystem.list_directory",
+  "github.*",                # glob: the whole github.* family
+]
 
 blocked_tools = [
-  "shell.exec",
-  "filesystem.delete",
-  "shell.*",               # glob: matches shell.exec, shell.run, …
+  "filesystem.delete",       # an explicit block wins even over the allow-list
 ]
 ```
 
-Tool names match literally; `*`, `?`, and `[...]` act as glob wildcards. Default-deny means the model can only call tools you've explicitly allowed. Everything else gets a JSON-RPC error back. No guessing about what "reasonable" tool access looks like.
+Tool names match literally; `*`, `?`, and `[...]` act as glob wildcards. Under default-deny, only tools matching `allowed_tools` pass — everything else gets a JSON-RPC error back, no guessing about what "reasonable" tool access looks like. A `blocked_tools` entry always wins, so you can carve an exception out of a permissive glob.
 
 ### Audit log
 
@@ -155,9 +159,22 @@ cargo install --git https://github.com/mdombrov-33/vex-mcp
 
 ## Quick start
 
-Change your MCP server's spawn command to go through Vex.
+The whole integration is one idea: **put `vex-mcp` in front of whatever command launches your MCP server.** Vex spawns that server as its child and inspects everything in between. It's client-agnostic — anything that starts a stdio MCP server as a subprocess works.
 
-**Claude Desktop** (`claude_desktop_config.json`):
+```sh
+# the server you run today
+npx -y @modelcontextprotocol/server-filesystem /data
+
+# the same server, guarded by Vex — just prefix it
+npx vex-mcp@latest npx -y @modelcontextprotocol/server-filesystem /data
+#   └──── run Vex ────┘ └──────────── your server, unchanged ───────────┘
+```
+
+> **stdio servers only, for now.** Vex wraps servers it launches as child processes. Remote/HTTP MCP servers (hosted GitHub, Notion, Linear, …) are on the [roadmap](#roadmap), not yet supported.
+
+### In an MCP client
+
+Config-file clients share the same `mcpServers` shape — Claude Code (`.mcp.json`), Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`), and most others. Point `command` at Vex and pass your real server as the args:
 
 ```json
 {
@@ -171,19 +188,29 @@ Change your MCP server's spawn command to go through Vex.
 }
 ```
 
-**Python / custom agent:**
+Claude Code from the CLI:
+
+```sh
+claude mcp add filesystem -- npx vex-mcp@latest npx -y @modelcontextprotocol/server-filesystem /data
+```
+
+### In an agent framework
+
+MCP increasingly ships *inside* agent SDKs. Wherever the SDK takes a stdio command, prefix it with `vex-mcp` — e.g. the OpenAI Agents SDK:
 
 ```python
-# Before
-StdioServerParameters(command="npx", args=["-y", "@mcp/server-filesystem", "/data"])
+from agents.mcp import MCPServerStdio
 
-# After
-StdioServerParameters(
-    command="npx",
-    args=["vex-mcp@latest", "npx", "-y", "@mcp/server-filesystem", "/data"],
-    env={"VEX_CONFIG": "/absolute/path/to/vex.toml"},
-)
+server = MCPServerStdio(params={
+    "command": "npx",
+    "args": ["vex-mcp@latest", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+    "env": {"VEX_CONFIG": "/absolute/path/to/vex.toml"},
+})
 ```
+
+The same prefix-the-command move works for the Claude Agent SDK, `mcp-use`, LangChain's MCP adapters, and the raw `mcp` Python/TS SDKs — anything that spawns a stdio server.
+
+### The policy file
 
 Create the `vex.toml` that `VEX_CONFIG` points at (if unset, Vex looks for `vex.toml` in the working directory):
 
@@ -192,10 +219,10 @@ Create the `vex.toml` that `VEX_CONFIG` points at (if unset, Vex looks for `vex.
 id = "filesystem"
 
 [policy]
-default_action = "allow"
-
-blocked_tools = [
-  "filesystem.delete",
+default_action = "deny"        # least privilege: only allowed_tools can be called
+allowed_tools = [
+  "filesystem.read_file",
+  "filesystem.list_directory",
 ]
 
 [audit]
@@ -214,11 +241,16 @@ id = "my-server"          # identity used for pins, policy, and audit records
 pin_store = "pins.json"   # where tool definition hashes are persisted (created on first run)
 
 [policy]
-default_action = "allow"  # "allow" passes unknown tools; "deny" blocks them
+default_action = "deny"   # "deny": only allowed_tools pass. "allow": everything except blocked_tools
+
+allowed_tools = [
+  "filesystem.read_file", # under default-deny, only tools matching these can be called
+  "github.*",             # names match literally; * ? [...] are glob wildcards
+]
 
 blocked_tools = [
-  "filesystem.delete",    # blocked regardless of default_action; returns an error to the client
-  "shell.*",              # names match literally; * ? [...] are glob wildcards
+  "filesystem.delete",    # blocked regardless of default_action; an explicit block wins over allowed_tools
+  "shell.*",
 ]
 
 confirmation_required = [
