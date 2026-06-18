@@ -5,8 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 
-<!-- Banner: replace this comment with your generated banner image -->
-<!-- Suggested prompt for Replicate: dark terminal aesthetic, labels "Rust", "MCP", "Security Gateway" -->
+![Vex banner](assets/banner.png)
 
 **A transparent MCP security gateway.** Sits between your AI client and MCP servers, inspects every message, and blocks the attacks the protocol doesn't.
 
