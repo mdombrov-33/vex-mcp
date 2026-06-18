@@ -69,7 +69,9 @@ A transparent MCP security proxy, written in Rust, that sits between an MCP clie
 
 **Vex is shipping software.** The priority is a correct, auditable, distributable tool. Prefer idiomatic Rust over shortcuts, and favor std/`tokio` over pulling in a new crate unless it earns its place — Vex is meant to be trusted and audited, so keep the dependency surface small.
 
-**Current state: v1 is built.** The transparent stdio proxy, JSON-RPC parsing/classification, tool-description scanning, pinning + drift detection, the default-deny policy engine, the tamper-evident audit log, and rate limiting are all complete and tested. The architecture, threat model, and implementation conventions are in `DESIGN.md`; the public roadmap is in `README.md`. Read `DESIGN.md` before non-trivial changes.
+**Current state: v1 is built.** The transparent stdio proxy, JSON-RPC parsing/classification, tool-description scanning, pinning + drift detection, the default-deny policy engine, the tamper-evident audit log, and rate limiting are all complete and tested. The architecture, threat model, and implementation conventions are in `DESIGN.md`. Read `DESIGN.md` before non-trivial changes.
+
+**Where the project is going:** `docs/roadmap.md` is the roadmap — themed, prioritized (Next / Planned / Later / Deferred), with rationale and an explicit list of ideas that cut against the grain (RBAC, SIEM forwarding, LLM-assisted policy, Docker). Check it for status and the grain notes before starting roadmap-level work.
 
 ---
 

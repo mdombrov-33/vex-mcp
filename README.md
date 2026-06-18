@@ -178,7 +178,7 @@ npx vex-mcp@latest npx -y @modelcontextprotocol/server-filesystem /data
 #   └──── run Vex ────┘ └──────────── your server, unchanged ───────────┘
 ```
 
-> **stdio servers only, for now.** Vex wraps servers it launches as child processes. Remote/HTTP MCP servers (hosted GitHub, Notion, Linear, …) are on the [roadmap](#roadmap), not yet supported.
+> **stdio servers only, for now.** Vex wraps servers it launches as child processes. Remote/HTTP MCP servers (hosted GitHub, Notion, Linear, …) are on the [roadmap](docs/roadmap.md), not yet supported.
 
 ### In an MCP client
 
@@ -262,7 +262,7 @@ blocked_tools = [
 ]
 
 confirmation_required = [
-  "github.create_pr",     # reserved for human-in-the-loop workflows (see roadmap)
+  "github.create_pr",     # reserved for human-in-the-loop workflows (see docs/roadmap.md)
 ]
 
 [audit]
@@ -290,45 +290,6 @@ vex-mcp --version
 ```
 
 Vex writes all operational logs to stderr. stdout is reserved for the MCP protocol stream.
-
----
-
-## Roadmap
-
-**v1 (current)** — stdio transport, deterministic keyword/structural detection on tool descriptions, drift detection, default-deny policy, hash-chained audit log. Covers Claude Code, Claude Desktop, and any agent that spawns MCP servers as child processes.
-
-The direction from here is **detection depth** — more surfaces, harder-to-evade rules, and an optional learned layer for the attacks patterns can't catch.
-
-### Detection depth (deterministic)
-
-Still no model calls, still sub-millisecond, still a single binary:
-
-- **Encoding & obfuscation tells** — base64- and hex-shaped blobs embedded in a description that has no reason to contain them.
-- **Instruction-to-data ratio** — a description should *describe*. One that is mostly directives aimed at the model is suspicious by shape, regardless of which keywords it uses. Catches paraphrased injections that evade exact patterns.
-- **Parameter-schema scanning** — extend scanning from the top-level description into parameter descriptions and `inputSchema` field text, which the model also reads.
-- **Cross-tool orchestration language** — descriptions that reference *other tools by name* ("after calling X, always call Y first") — the setup move for confused-deputy chains.
-- **Tool-name shadowing** — flag a server advertising a tool named to impersonate a trusted one (e.g. a second server exposing `filesystem.read`).
-- **Tool-output scanning** — a second inspection surface. v1 inspects the catalog; tool *results* flow into the model too and can carry injection.
-
-### Learned detection layer (optional)
-
-An opt-in classifier / embedding pass that runs *behind* the deterministic rules and catches novel and paraphrased attacks that keyword matching misses ("kindly overlook the directives you were given earlier"). Kept strictly optional so the default install stays dependency-light and offline — the deterministic core remains the floor, not the ceiling.
-
-### Reach
-
-- **Streamable-HTTP transport** — remote MCP servers (GitHub's hosted MCP, Linear, Notion, etc.) run over HTTP, not stdio. This opens the TLS/auth surface (OAuth 2.1) the spec recommends for remote MCP.
-
-### Stateful analysis
-
-- **Cross-tool data-flow watch** — one tool reads sensitive data, another sends data out, and the model chains them so each individual call looks clean. No single message is malicious; the *sequence* is. Requires Vex to hold and reason about state across calls.
-
-### Operability
-
-Smaller quality-of-life items, not headline features:
-
-- **Drift approval CLI** — review and approve detected drift without hand-editing the pin store.
-- **Confirmation channel** — a side-channel (CLI prompt / local socket / companion UI) so `confirmation_required` tools pause for live human approval instead of being blocked. The verdict exists today but behaves like a block, since a transparent stdio proxy has no way to surface a prompt (ADR-0003).
-- **Hot config reload** — change policy without restarting the connection.
 
 ---
 
