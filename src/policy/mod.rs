@@ -183,6 +183,28 @@ mod tests {
     }
 
     #[test]
+    fn allow_list_matches_the_bare_wire_name() {
+        let bare = Policy {
+            default_action: DefaultAction::Deny,
+            allowed_tools: patterns(&["read_file"]),
+            blocked_tools: vec![],
+            confirmation_required: vec![],
+        };
+        assert_eq!(decide_tool_call(&bare, &tool("read_file")), Verdict::Allow);
+
+        let namespaced = Policy {
+            default_action: DefaultAction::Deny,
+            allowed_tools: patterns(&["filesystem.read_file"]),
+            blocked_tools: vec![],
+            confirmation_required: vec![],
+        };
+        assert!(matches!(
+            decide_tool_call(&namespaced, &tool("read_file")),
+            Verdict::Block { .. }
+        ));
+    }
+
+    #[test]
     fn default_deny_allow_list_honors_globs() {
         let policy = Policy {
             default_action: DefaultAction::Deny,

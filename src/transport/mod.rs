@@ -5,8 +5,6 @@ use tokio::process::Command;
 
 use crate::gateway::{Disposition, Gateway};
 
-/// The assembled proxy: a gateway plus the child server command. `run` spawns the
-/// server, owns both pipes, and drives the message loop.
 pub struct Application {
     pub gateway: Gateway,
     pub command: String,
@@ -35,6 +33,9 @@ impl Application {
         )
         .await?;
 
+        // run_proxy returns once the client disconnects. A server that ignores its
+        // closed stdin would otherwise keep us alive, so terminate the child.
+        child.start_kill().ok();
         child.wait().await?;
         Ok(())
     }
@@ -59,21 +60,23 @@ where
     let mut client_lines = client_in.lines();
     let mut server_lines = server_in.lines();
 
-    let mut client_done = false;
     let mut server_done = false;
 
-    while !(client_done && server_done) {
+    loop {
         tokio::select! {
-            line = client_lines.next_line(), if !client_done => {
+            line = client_lines.next_line() => {
                 match line? {
                     Some(line) => match gateway.handle_client_line(&line) {
                         Disposition::Forward => write_line(&mut server_out, &line).await?,
                         Disposition::Refusal(json) => write_line(&mut client_out, &json).await?,
                         Disposition::Drop => {}
                     },
+                    // The client disconnected: the session is over. Close the child's
+                    // stdin and stop - don't wait on a server that may never close
+                    // its own stdout.
                     None => {
-                        client_done = true;
                         server_out.shutdown().await?;
+                        break;
                     }
                 }
             }

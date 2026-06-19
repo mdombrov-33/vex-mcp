@@ -5,27 +5,28 @@ pin_store = "pins.json"
 [policy]
 default_action = "deny"   # "deny": only allowed_tools pass. "allow": everything except blocked_tools
 
-# Tool names match literally; `*`, `?`, and `[...]` are glob wildcards.
-# e.g. "shell.*" matches shell.exec, shell.run, …
+# Patterns match the bare tool name as the server reports it (one server per
+# instance, so no prefix). Names match literally; `*`, `?`, `[...]` are globs.
+# e.g. "read_*" matches read_file, read_multiple_files, …
 
 # Under default-deny, list the tools the model is permitted to call:
 allowed_tools = [
-  # "filesystem.read_file",
-  # "filesystem.list_directory",
+  # "read_file",
+  # "list_directory",
 ]
 
 # An explicit block wins even over allowed_tools / default-allow:
 blocked_tools = [
-  # "shell.exec",
-  # "filesystem.delete",
-  # "shell.*",
+  # "write_file",
+  # "delete_file",
+  # "write_*",
 ]
 
 # Currently behaves like a block (no live prompt yet — see ADR-0003 / roadmap).
 # A human "approves" by editing this file, not by answering a prompt.
 confirmation_required = [
-  # "github.create_pr",
-  # "email.send",
+  # "move_file",
+  # "edit_file",
 ]
 
 [audit]

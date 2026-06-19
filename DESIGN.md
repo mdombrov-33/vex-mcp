@@ -92,8 +92,8 @@ A TOML policy file shipped with the service:
 ```toml
 default_action = "deny"
 
-blocked_tools = ["shell.exec", "filesystem.delete"]
-confirmation_required = ["github.create_pr", "email.send"]
+blocked_tools = ["write_file", "delete_file"]
+confirmation_required = ["move_file", "edit_file"]
 ```
 
 At runtime: blocked tool calls return a JSON-RPC error to the agent (handled like any other tool error). Detected injection blocks the tool catalog. Drift (tool definition changed since last session) is flagged in logs and the audit trail. The agent code sees none of this directly — it sees allowed calls go through and blocked calls return errors.
@@ -752,18 +752,18 @@ impl TryFrom<RawPolicyConfig> for Policy {
 default_action = "deny"
 
 allowed_tools = [
-  "filesystem.read_file",
-  "filesystem.list_directory",
+  "read_file",
+  "list_directory",
 ]
 
 blocked_tools = [
-  "filesystem.delete",
-  "shell.exec",
+  "delete_file",
+  "write_file",
 ]
 
 confirmation_required = [
-  "github.create_pr",
-  "email.send",
+  "move_file",
+  "edit_file",
 ]
 ```
 

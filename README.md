@@ -109,17 +109,17 @@ Rug pulls surface immediately. A typo fix and a malicious injection both count a
 default_action = "deny"      # only tools on the allow-list can be called
 
 allowed_tools = [
-  "filesystem.read_file",
-  "filesystem.list_directory",
-  "github.*",                # glob: the whole github.* family
+  "read_file",
+  "list_directory",
+  "search_*",                # glob: the whole search_* family
 ]
 
 blocked_tools = [
-  "filesystem.delete",       # an explicit block wins even over the allow-list
+  "write_file",              # an explicit block wins even over the allow-list
 ]
 ```
 
-Tool names match literally; `*`, `?`, and `[...]` act as glob wildcards. Under default-deny, only tools matching `allowed_tools` pass — everything else gets a JSON-RPC error back, no guessing about what "reasonable" tool access looks like. A `blocked_tools` entry always wins, so you can carve an exception out of a permissive glob.
+Patterns match the **bare tool name** as the server reports it (e.g. `read_file`, not `filesystem.read_file`) — each Vex instance already fronts exactly one server, so there's no prefix to add. Names match literally; `*`, `?`, and `[...]` act as glob wildcards. Under default-deny, only tools matching `allowed_tools` pass — everything else gets a JSON-RPC error back, no guessing about what "reasonable" tool access looks like. A `blocked_tools` entry always wins, so you can carve an exception out of a permissive glob.
 
 ### Audit log
 
@@ -251,8 +251,8 @@ id = "filesystem"
 [policy]
 default_action = "deny"        # least privilege: only allowed_tools can be called
 allowed_tools = [
-  "filesystem.read_file",
-  "filesystem.list_directory",
+  "read_file",
+  "list_directory",
 ]
 
 [audit]
@@ -274,17 +274,17 @@ pin_store = "pins.json"   # where tool definition hashes are persisted (created 
 default_action = "deny"   # "deny": only allowed_tools pass. "allow": everything except blocked_tools
 
 allowed_tools = [
-  "filesystem.read_file", # under default-deny, only tools matching these can be called
-  "github.*",             # names match literally; * ? [...] are glob wildcards
+  "read_file",            # under default-deny, only tools matching these can be called
+  "search_*",             # bare names as the server reports them; * ? [...] are glob wildcards
 ]
 
 blocked_tools = [
-  "filesystem.delete",    # blocked regardless of default_action; an explicit block wins over allowed_tools
-  "shell.*",
+  "delete_file",          # blocked regardless of default_action; an explicit block wins over allowed_tools
+  "write_*",
 ]
 
 confirmation_required = [
-  "github.create_pr",     # treated as blocked with a "confirmation required" reason; move to allowed_tools to permit
+  "move_file",            # treated as blocked with a "confirmation required" reason; move to allowed_tools to permit
 ]
 
 [audit]
