@@ -59,7 +59,9 @@ pub fn inspect_tool_list(
         };
 
         let mut findings = poisoning::scan_tool_description(&def.description);
+        findings.extend(poisoning::scan_input_schema(&def.input_schema));
         findings.extend(drift::detect_drift(&def, server_id, pin_store));
+        dedup_by_rule_id(&mut findings);
 
         inspections.push(ToolInspection {
             new_hash: def.hash(),
@@ -69,6 +71,13 @@ pub fn inspect_tool_list(
     }
 
     inspections
+}
+
+/// The same rule can now fire in the description and in several schema strings;
+/// collapse to one finding per rule so the audit record isn't spammed.
+fn dedup_by_rule_id(findings: &mut Vec<Finding>) {
+    let mut seen = std::collections::HashSet::new();
+    findings.retain(|f| seen.insert(f.rule_id));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

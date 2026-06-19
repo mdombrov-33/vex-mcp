@@ -10,6 +10,7 @@ Direction, in one line: **deepen detection, lower adoption friction, then extend
 
 ## Status legend
 
+- **Done** — shipped. Tagged with the release it landed in.
 - **Next** — high leverage, low risk, aligned with the grain. The near-term queue.
 - **Planned** — clearly in scope, larger or dependent on a "Next" item landing first.
 - **Later** — real, but a bigger lift or a new surface; needs its own design pass.
@@ -23,10 +24,11 @@ No model calls, still sub-millisecond, still a single binary. This is the primar
 
 | Item | Status | Notes |
 |---|---|---|
-| **Parameter-schema scanning** | Next | Extend description scanning from the top-level `description` into parameter descriptions and `inputSchema` field text — the model reads all of it. Recursively traverse and scan every string value. Detectors are already pure functions over text; this is a new *call site*, not a new engine. |
-| **Encoding & obfuscation tells** | Next | base64- and hex-shaped blobs in a description that has no reason to carry them; high-entropy strings with no semantic justification. v1 already handles zero-width and homoglyph smuggling; this is the same evasion class, extended. |
+| **Parameter-schema scanning** | Done (v0.2.0) | `scan_input_schema` walks every string value in `inputSchema` (param descriptions, titles, enum values) through the same `scan_text` core as the top-level description. Iterative walk, not recursion — the server controls the schema, so we don't recurse into attacker-chosen nesting. Findings are deduped by `rule_id` so the audit record isn't spammed when one rule fires across many schema strings. Scans values only, not keys. |
+| **Encoding & obfuscation tells** | Done (v0.2.0) | `obfuscation.base64_blob` and `obfuscation.hex_blob` in `scan_text`, both **High severity** (Flag/warn, not Block — a blob is a signal, not proof). base64 charset excludes `+`/`/` so URL paths don't false-positive; guards require a digit plus a charset-discriminating letter so long plain words, bare hex, and decimal IDs don't trip. **Carve-out:** raw high-entropy scanning was deliberately deferred — it false-positives on JWTs/URLs/git SHAs and wants its own tuning pass against the benign corpus. Tracked as its own "High-entropy string scanning" row (Later) below. |
 | **Tool-name shadowing** | Planned | Flag a server advertising a tool named to impersonate a trusted one (a second server exposing `filesystem.read`, `github.create_pr`). Needs a small curated list of well-known names + a cross-server collision check. Block on collision unless explicitly allowlisted. |
 | **Cross-tool orchestration language** | Planned | Descriptions that reference *other tools by name* ("after calling X, always call Y first") — the setup move for confused-deputy chains. Flag for review; this is a signal, not a verdict. |
+| **High-entropy string scanning** | Later | Carved out of "Encoding & obfuscation tells" (done in v0.2.0). A generic Shannon-entropy check catches base64url/opaque blobs the base64/hex regexes miss, but false-positives on JWTs, long URLs, and git SHAs. Needs its own exclusion rules and a tuning pass against the benign corpus before it's safe to ship. |
 | **Instruction-to-data ratio** | Later | A description should *describe*; one that is mostly directives at the model is suspicious by shape regardless of keywords. Catches paraphrased injections that dodge exact patterns. Needs tuning against the benign corpus to avoid false positives on legitimately instructive descriptions. |
 | **Tool-output scanning** | Later | A second inspection surface. v1 inspects the catalog; tool *results* also flow into the model and can carry injection. Larger because it changes which message classes get the full detector pass, with its own fail-open/closed call decided explicitly per message class. |
 
