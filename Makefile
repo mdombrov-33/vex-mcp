@@ -2,7 +2,7 @@
 
 VERSION := $(shell grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
 
-.PHONY: all check fmt lint test build clean bump tag help
+.PHONY: all check fmt lint test build clean bump release help
 
 all: check
 
@@ -33,17 +33,17 @@ clean:
 	cargo clean
 	rm -f vex-audit.log pins.json
 
-## bump: set the crate version, e.g. make bump V=0.2.0 (then commit, then make tag)
+## bump: set the crate version, e.g. make bump V=0.2.0 (then commit, then make release)
 bump:
 	@test -n "$(V)" || { echo "usage: make bump V=X.Y.Z"; exit 1; }
 	@sed -i.bak -E 's/^version = "[^"]*"/version = "$(V)"/' Cargo.toml && rm -f Cargo.toml.bak
 	@cargo update --workspace -q 2>/dev/null || cargo check -q
-	@echo "bumped to $(V) — commit, then 'make tag'"
+	@echo "bumped to $(V) — commit, then 'make release'"
 
-## tag: tag v$(VERSION) from Cargo.toml and push it (triggers the release workflow)
-tag:
+## release: tag v$(VERSION) from Cargo.toml, push commits + tag (publishes to crates.io/npm/PyPI)
+release:
 	git tag -a v$(VERSION) -m "vex-mcp v$(VERSION)"
-	git push origin v$(VERSION)
+	git push --follow-tags
 
 ## help: list targets
 help:
