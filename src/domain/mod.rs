@@ -86,13 +86,29 @@ pub fn classify_request(method: &str) -> MessageClass {
     }
 }
 
-pub fn classify_response(
-    id: Option<&RequestId>,
-    pending: &HashMap<RequestId, String>,
-) -> MessageClass {
-    match id.and_then(|id| pending.get(id)) {
-        Some(method) if method == "tools/list" => MessageClass::ToolListResponse,
-        _ => MessageClass::PassiveResponse,
+/// Correlates outstanding requests with their responses: a request id is recorded
+/// with its method, and the matching response resolves to a message class. Owns the
+/// id→method map so classification and its lifecycle live behind one interface.
+#[derive(Default)]
+pub struct PendingRequests {
+    pending: HashMap<RequestId, String>,
+}
+
+impl PendingRequests {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record(&mut self, id: RequestId, method: String) {
+        self.pending.insert(id, method);
+    }
+
+    /// Resolve a response's id to its message class, consuming the pending entry.
+    pub fn classify_response(&mut self, id: Option<&RequestId>) -> MessageClass {
+        match id.and_then(|id| self.pending.remove(id)) {
+            Some(method) if method == "tools/list" => MessageClass::ToolListResponse,
+            _ => MessageClass::PassiveResponse,
+        }
     }
 }
 
@@ -298,23 +314,40 @@ fn rejects_non_string_non_number_id() {
 
 #[test]
 fn classifies_tools_list_response_via_pending_table() {
-    let mut pending = HashMap::new();
+    let mut pending = PendingRequests::new();
     let id = RequestId::parse(&serde_json::json!(1)).unwrap();
-    pending.insert(id.clone(), "tools/list".to_string());
+    pending.record(id.clone(), "tools/list".to_string());
 
     assert_eq!(
-        classify_response(Some(&id), &pending),
+        pending.classify_response(Some(&id)),
         MessageClass::ToolListResponse
     );
 }
 
 #[test]
 fn classifies_unmatched_id_as_passive() {
-    let pending = HashMap::new();
+    let mut pending = PendingRequests::new();
     let id = RequestId::parse(&serde_json::json!(99)).unwrap();
 
     assert_eq!(
-        classify_response(Some(&id), &pending),
+        pending.classify_response(Some(&id)),
+        MessageClass::PassiveResponse
+    );
+}
+
+#[test]
+fn resolving_a_response_consumes_the_pending_entry() {
+    let mut pending = PendingRequests::new();
+    let id = RequestId::parse(&serde_json::json!(1)).unwrap();
+    pending.record(id.clone(), "tools/list".to_string());
+
+    assert_eq!(
+        pending.classify_response(Some(&id)),
+        MessageClass::ToolListResponse
+    );
+    // second response with the same id no longer correlates
+    assert_eq!(
+        pending.classify_response(Some(&id)),
         MessageClass::PassiveResponse
     );
 }

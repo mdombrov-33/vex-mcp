@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{audit, detect, domain, pin, policy, protocol, rate_limit};
 
 pub enum Disposition {
@@ -13,7 +11,7 @@ pub struct Gateway {
     policy: policy::Policy,
     pin_store: pin::PinStore,
     audit_log: audit::AuditLog,
-    pending: HashMap<domain::RequestId, String>,
+    pending: domain::PendingRequests,
     rate_limiter: Option<rate_limit::RateLimiter>,
 }
 
@@ -30,7 +28,7 @@ impl Gateway {
             policy,
             pin_store,
             audit_log,
-            pending: HashMap::new(),
+            pending: domain::PendingRequests::new(),
             rate_limiter,
         }
     }
@@ -138,6 +136,7 @@ impl Gateway {
         let inspections = detect::inspect_tool_list(result, &self.server_id, &self.pin_store);
 
         let mut should_block = false;
+        let mut updates = Vec::new();
 
         for inspection in &inspections {
             let tool = inspection.name.as_ref();
@@ -169,16 +168,10 @@ impl Gateway {
                 }
             }
 
-            self.pin_store.upsert(
-                &self.server_id,
-                &inspection.name,
-                inspection.new_hash.clone(),
-            );
+            updates.push((inspection.name.clone(), inspection.new_hash.clone()));
         }
 
-        if !inspections.is_empty()
-            && let Err(e) = self.pin_store.save()
-        {
+        if let Err(e) = self.pin_store.apply(&self.server_id, updates) {
             tracing::warn!(error = %e, "failed to persist pin store");
         }
 
@@ -206,7 +199,7 @@ impl Gateway {
                 .as_ref()
                 .and_then(|id| domain::RequestId::parse(id).ok())
             {
-                self.pending.insert(id, req.method.clone());
+                self.pending.record(id, req.method.clone());
             }
             tracing::info!(%direction, method = %req.method, class = ?class, "request");
             return (class, Some(req), None);
@@ -217,10 +210,7 @@ impl Gateway {
                 .id
                 .as_ref()
                 .and_then(|id| domain::RequestId::parse(id).ok());
-            let class = domain::classify_response(id.as_ref(), &self.pending);
-            if let Some(id) = id {
-                self.pending.remove(&id);
-            }
+            let class = self.pending.classify_response(id.as_ref());
             tracing::info!(%direction, class = ?class, "response");
             return (class, None, Some(resp));
         }
