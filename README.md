@@ -2,8 +2,11 @@
 
 [![CI](https://github.com/mdombrov-33/vex-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/mdombrov-33/vex-mcp/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/vex-mcp.svg)](https://crates.io/crates/vex-mcp)
+[![crates.io downloads](https://img.shields.io/crates/d/vex-mcp.svg)](https://crates.io/crates/vex-mcp)
 [![npm](https://img.shields.io/npm/v/vex-mcp.svg)](https://www.npmjs.com/package/vex-mcp)
+[![npm downloads](https://img.shields.io/npm/dt/vex-mcp.svg)](https://www.npmjs.com/package/vex-mcp)
 [![PyPI](https://img.shields.io/pypi/v/vex-mcp.svg)](https://pypi.org/project/vex-mcp/)
+[![PyPI downloads](https://static.pepy.tech/badge/vex-mcp)](https://pepy.tech/project/vex-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 
@@ -76,7 +79,7 @@ The client thinks it's talking directly to the server. The server thinks it's ta
 
 ### Tool description poisoning
 
-Every description in a `tools/list` response is scanned before the client sees it:
+Every tool description **and parameter schema** in a `tools/list` response is scanned before the client sees it:
 
 | Rule | What it catches |
 |---|---|
@@ -86,8 +89,12 @@ Every description in a `tools/list` response is scanned before the client sees i
 | `resource.secret_env_var` | Named secrets: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`, `DATABASE_URL`, etc. |
 | `unicode.zero_width` | Zero-width characters used to smuggle hidden instructions past human review |
 | `unicode.confusable` | Homoglyphs — visual lookalikes from another script (Cyrillic `і`, Greek `ο`) used to evade the keyword rules above |
+| `obfuscation.base64_blob` | A base64-shaped blob with no reason to sit in a description — an encoded payload smuggled past the keyword rules |
+| `obfuscation.hex_blob` | A long hexadecimal blob (hash, key, or hex-encoded payload) with no semantic justification |
 
-A description that legitimately contains the word "ignore" (e.g., "ignores empty lines") doesn't trip, and genuine non-Latin text — a Chinese phrase, a standalone Greek symbol, accented Latin like `café` — passes cleanly. The patterns are tuned against a corpus of near-miss benign cases. Descriptions are also folded to their canonical form before matching, so a keyword spelled with lookalike characters still trips the relevant rule.
+The same rules run over parameter descriptions and `inputSchema` text, not just the top-level description — the model reads all of it.
+
+A description that legitimately contains the word "ignore" (e.g., "ignores empty lines") doesn't trip, and genuine non-Latin text — a Chinese phrase, a standalone Greek symbol, accented Latin like `café` — passes cleanly. The patterns are tuned against a corpus of near-miss benign cases. Descriptions are also folded to their canonical form before matching, so a keyword spelled with lookalike characters still trips the relevant rule. Critical findings (injection, secrecy, zero-width, homoglyph) suppress the whole catalog; the resource and obfuscation rules flag for review and forward the message.
 
 ### Drift detection
 
@@ -178,7 +185,7 @@ npx vex-mcp@latest npx -y @modelcontextprotocol/server-filesystem /data
 #   └──── run Vex ────┘ └──────────── your server, unchanged ───────────┘
 ```
 
-> **stdio servers only, for now.** Vex wraps servers it launches as child processes. Remote/HTTP MCP servers (hosted GitHub, Notion, Linear, …) are on the [roadmap](docs/roadmap.md), not yet supported.
+> **Vex wraps stdio MCP servers** — the ones your client launches as child processes. Prefix the command that starts your server, and Vex inspects everything that flows through it.
 
 ### In an MCP client
 
@@ -216,7 +223,22 @@ server = MCPServerStdio(params={
 })
 ```
 
-The same prefix-the-command move works for the Claude Agent SDK, `mcp-use`, LangChain's MCP adapters, and the raw `mcp` Python/TS SDKs — anything that spawns a stdio server.
+For the TypeScript side, the [Vercel AI SDK](https://ai-sdk.dev/docs/ai-sdk-core/mcp-tools) follows the same shape:
+
+```ts
+import { createMCPClient } from '@ai-sdk/mcp';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+const mcp = await createMCPClient({
+  transport: new StdioClientTransport({
+    command: 'npx',
+    args: ['vex-mcp@latest', 'npx', '-y', '@modelcontextprotocol/server-filesystem', '/data'],
+    env: { VEX_CONFIG: '/absolute/path/to/vex.toml' },
+  }),
+});
+```
+
+The same prefix-the-command move works for the Claude Agent SDK, Mastra, `mcp-use`, LangChain's MCP adapters, and the raw `mcp` Python/TS SDKs — anything that spawns a stdio server.
 
 ### The policy file
 
@@ -262,7 +284,7 @@ blocked_tools = [
 ]
 
 confirmation_required = [
-  "github.create_pr",     # reserved for human-in-the-loop workflows (see docs/roadmap.md)
+  "github.create_pr",     # treated as blocked with a "confirmation required" reason; move to allowed_tools to permit
 ]
 
 [audit]
