@@ -212,7 +212,7 @@ Config-file clients share the same `mcpServers` shape — Claude Code (`.mcp.jso
 Claude Code from the CLI:
 
 ```sh
-claude mcp add filesystem -- npx vex-mcp@latest npx -y @modelcontextprotocol/server-filesystem /data
+claude mcp add --env VEX_CONFIG=/absolute/path/to/vex.toml filesystem -- npx vex-mcp@latest npx -y @modelcontextprotocol/server-filesystem /data
 ```
 
 ### In an agent framework
