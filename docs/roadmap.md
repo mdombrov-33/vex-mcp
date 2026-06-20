@@ -53,8 +53,8 @@ The highest-leverage, lowest-risk work for a tool now distributed on npm / PyPI 
 
 | Item | Status | Notes |
 |---|---|---|
-| **`vex-mcp init`** | Next | Generate a starter `vex.toml` with sensible defaults (`default_action = "deny"`, an example allowlist, audit path). Removes "write TOML from memory" as the first experience. |
-| **`vex-mcp doctor`** | Next | Diagnostic: is `VEX_CONFIG` set and pointing at a real file? Is the TOML valid? Does the wrapped server command actually launch? Report version/OS. Users *will* misconfigure the path or the server command — give them a way to see why. |
+| **`vex-mcp init`** | Done (v0.3.0) | Generates a starter `vex.toml` with `default_action = "deny"`, a commented allowlist, audit path, and rate-limit stubs. Flags: `--server <id>`, `--output <path>`, `--force`. Refuses to overwrite without `--force`. |
+| **`vex-mcp doctor`** | Done (v0.3.0) | Diagnostics: resolves config path (VEX_CONFIG → `--config` → default), checks file readable, TOML valid, policy parses, audit-log and pin-store parent directories exist. Reports version/OS. Exits non-zero if any check fails. |
 | **Example policies** | Next | A `policies/` directory of starting points: `filesystem.toml`, `github.toml`, `postgres.toml`, a strict `production.toml`. Users don't know a server's tool surface up front; ship known-good baselines. |
 | **`vex-mcp discover` / `protect`** | Planned | Scan standard client config locations (Claude Desktop, Cursor, VS Code, Claude Code `.mcp.json`) and list discovered MCP servers; `protect` rewrites them to spawn through Vex. High convenience; must be conservative about touching user config (dry-run first, back up before writing). |
 
