@@ -1,4 +1,5 @@
 mod audit;
+mod cmd;
 mod config;
 mod detect;
 mod domain;
@@ -22,6 +23,8 @@ fn print_help() {
 
 USAGE:
     vex-mcp <server-command> [server-args...]
+    vex-mcp init   [--server <id>] [--output <path>] [--force]
+    vex-mcp doctor [--config <path>]
     vex-mcp verify [audit-log-path]
     vex-mcp --help | --version
 
@@ -30,6 +33,8 @@ JSON-RPC between your client and that server, inspecting tool descriptions,
 detecting definition drift, and enforcing the capability policy.
 
 SUBCOMMANDS:
+    init      Generate a starter vex.toml in the current directory
+    doctor    Check config validity, paths, and version info
     verify    Verify the audit-log hash chain (default: vex-audit.log)
 
 ENVIRONMENT:
@@ -52,6 +57,8 @@ async fn main() -> anyhow::Result<()> {
             println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
+        Some("init") => return cmd::init::run(&args[1..]),
+        Some("doctor") => return cmd::doctor::run(&args[1..]),
         _ => {}
     }
 
